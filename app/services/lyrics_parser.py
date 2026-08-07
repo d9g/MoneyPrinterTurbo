@@ -23,6 +23,51 @@ from typing import Optional
 
 from loguru import logger
 
+try:
+    import chardet
+    _HAS_CHARDET = True
+except ImportError:
+    _HAS_CHARDET = False
+
+
+def _read_text_with_encoding(path: Path) -> str:
+    """智能读歌词文件: 先尝试 utf-8, 失败用 chardet 检测.
+
+    中文歌词常见 GBK / GB18030 / UTF-8 三种编码.
+    chardet 置信度 < 0.5 时仍优先用 utf-8 (因 LRC 文件多数为 utf-8).
+    """
+    raw_bytes = path.read_bytes()
+
+    # 1. 优先尝试 UTF-8 (干净解码就用它)
+    try:
+        return raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+
+    # 2. 用 chardet 检测
+    if _HAS_CHARDET:
+        enc_info = chardet.detect(raw_bytes)
+        detected = enc_info.get("encoding") or "utf-8"
+        confidence = enc_info.get("confidence", 0.0)
+        logger.info(
+            f"lyrics_parser: chardet 检测 {path.name} -> {detected} "
+            f"(confidence={confidence:.2f})"
+        )
+        try:
+            return raw_bytes.decode(detected)
+        except (UnicodeDecodeError, LookupError):
+            pass
+
+    # 3. 兜底: 常见中文编码依次尝试
+    for enc in ["gb18030", "gbk", "big5", "utf-8"]:
+        try:
+            return raw_bytes.decode(enc)
+        except UnicodeDecodeError:
+            continue
+
+    # 4. 最后兜底: ignore 模式
+    return raw_bytes.decode("utf-8", errors="ignore")
+
 # ============ LRC 解析 ============
 
 # 标准 LRC 行格式: [mm:ss.xx]歌词 或 [mm:ss.xxx]歌词
@@ -221,7 +266,7 @@ def parse_lyrics_file(file_path: str) -> list:
 
     if ext == ".qrc":
         return parse_qrc_file(str(path))
-    content = path.read_text(encoding="utf-8", errors="ignore")
+    content = _read_text_with_encoding(path)
     if ext == ".lrc":
         return parse_lrc(content)
     return parse_txt(content)
