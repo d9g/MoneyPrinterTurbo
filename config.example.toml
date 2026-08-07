@@ -72,6 +72,25 @@ sonilo_base_url = "https://api.sonilo.com"
 # 单次生成流连续无数据时的最长等待秒数；它不是整个请求的总耗时上限。
 sonilo_timeout = 600
 
+# MV 模式: 视频拍摄模式 (音乐可视化)
+# 字幕策略: full_lyrics=完整歌词 / keywords_mood=关键歌词+意境词 / none=不要字幕
+mv_subtitle_mode = "full_lyrics"
+# 歌词来源优先级 (按顺序尝试): lrc_file / qrc_file / txt_file / lrclib_api
+mv_lyrics_sources = ["lrc_file", "qrc_file", "txt_file"]
+# qrc 解密库: qrcd (xmcp/GitHub) | qqmusicdes (PyPI)
+mv_qrc_decoder = "qrcd"
+# MV 视频最长时长 (秒, 防止超长歌曲卡死)
+mv_max_duration = 600
+# 段落切分粒度: section=粗 (前奏/主歌/副歌) | beat=细 (每8 小节)
+mv_section_granularity = "section"
+# MV 意境历史 SQLite DB 路径 (老杨 2026-08-07 22:18 拍板: 独立 DB)
+mv_intent_db_path = "storage/mv/mv_intent.db"
+# MV 意境历史保留版本数 (防止无限增长)
+mv_intent_max_versions = 10
+# MV 意境历史保留天数 (超过清理)
+mv_intent_retention_days = 90
+
+
 # -----------------------------------------------------------------------------
 # LLM Providers / 大模型提供商
 # -----------------------------------------------------------------------------
