@@ -3673,6 +3673,9 @@ def _render_audio_analysis_panel(uploaded_audio_file):
             try:
                 result = _run_audio_mv_analysis(uploaded_file)
                 st.session_state[_MV_AUDIO_SESSION_KEY] = result
+                # 老杨 8/8 21:31: 按段落拼接 - 存 plan + features 供视频生成用
+                st.session_state["_mv_current_plan"] = result.get("plan")
+                st.session_state["_mv_current_features"] = result.get("features")
                 st.session_state[_MV_DIALOG_FLAG_KEY] = True  # 分析完自动弹
             except Exception as exc:
                 logger.error(f"mv_audio_analysis failed: {exc}")
@@ -4406,6 +4409,16 @@ def _render_audio_settings(panel, params):
                                 st.session_state["_mv_apply_message"] = "🚮 高潮段已清除"
                                 st.session_state["_mv_apply_message_ts"] = time.time()
                                 st.rerun(scope="app")
+                        # 老杨 8/8 21:31: 按段落拼接开关 - 默认 false, 只有音频分析后才能启用
+                        _plan_in_session = st.session_state.get("_mv_current_plan")
+                        _n_prompts = len((_plan_in_session or {}).get("video_prompts", []))
+                        st.checkbox(
+                            f"🎬 按段落拼接 ({_n_prompts} 段独立 prompt, 默认随机拼接)",
+                            key="use_segmented_concat",
+                            value=st.session_state.get("use_segmented_concat", False),
+                            disabled=_plan_in_session is None,
+                            help="勾选后 LLM 返回的段落拍摄提示会在视频生成时按段独立拼接. 例如前奏/主歌/副歌/尾奏 各自 pexels 搜索 → 独立拼接. 不勾选则保持现有随机拼接逻辑.",
+                        )
             uploaded_bgm_file = _render_background_music_settings(
                 params,
                 elevenlabs_api_key_rendered=elevenlabs_api_key_rendered,
@@ -4878,6 +4891,22 @@ def _render_generation_controls(
             else:
                 params.audio_clip_range_start = None
                 params.audio_clip_range_end = None
+            # 老杨 8/8 21:31: 按段落拼接 - 从 session_state 拿 mv_plan / mv_features
+            _mv_plan = st.session_state.get("_mv_current_plan")
+            _mv_features = st.session_state.get("_mv_current_features")
+            _use_seg = st.session_state.get("use_segmented_concat", False)
+            if _use_seg and _mv_plan is not None and _mv_features is not None:
+                params.use_segmented_concat = True
+                params.mv_plan = _mv_plan
+                params.mv_features = _mv_features
+                logger.info(
+                    f"segmented_concat: {len(_mv_plan.get('video_prompts', []))} prompts, "
+                    f"{len(_mv_features.get('sections', []))} sections"
+                )
+            else:
+                params.use_segmented_concat = False
+                params.mv_plan = None
+                params.mv_features = None
 
         if uploaded_files:
             local_videos_dir = utils.storage_dir("local_videos", create=True)
