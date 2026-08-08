@@ -81,7 +81,7 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
     dynamic_info = get_dynamic(y, sr)
     spectral_info = get_spectral(y, sr)
     sections = detect_sections(y, sr)
-    chorus_segments = detect_chorus_segments(y, sr, top_k=3)  # Diana 8/8: 高潮检测 精选1/2/3
+    chorus_segments = detect_chorus_segments(y, sr, top_k=6)  # 老杨 8/8 17:34: detect 多个, UI 列表只显示前 3 个 (识别出几个就返回几个)
 
     # 3. 风格识别 (Diana 3.1, v2.0 占位)
     style_info = detect_style(
