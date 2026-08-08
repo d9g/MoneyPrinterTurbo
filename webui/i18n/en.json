@@ -334,6 +334,12 @@
     "MV Chorus Match Keywords": "Matching Search Keywords",
     "MV Chorus Match Style": "Style",
     "MV Chorus No Matching Section": "This chorus section has no matching intent prompt, please regenerate",
-    "Apply Chorus Keywords Button": "🎵 Apply This Section's Keywords"
+    "Apply Chorus Keywords Button": "🎵 Apply This Section's Keywords",
+    "Use LRC Subtitles": "Use LRC for precise subtitle alignment",
+    "Use LRC Subtitles Help": "Upload LRC lyrics file. Subtitles will align exactly to lyrics timestamps (more accurate than TTS/Whisper)",
+    "Upload LRC File": "Upload LRC File",
+    "Upload LRC File Help": "Upload .lrc file (UTF-8/GBK/Enhanced LRC with per-word timestamps supported)",
+    "LRC Upload Success": "✅ LRC uploaded: {name}",
+    "LRC Current File": "📄 Current: {path} ({size} bytes)"
   }
 }

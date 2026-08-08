@@ -107,6 +107,7 @@ class VideoParams(BaseModel):
     sonilo_bgm_prompt: str = Field(default="", max_length=2000)
 
     subtitle_enabled: Optional[bool] = True
+    lrc_file: Optional[str] = None  # Diana 8/8: LRC 歌词文件路径 (精准对齐字幕时间轴)
     subtitle_position: Optional[str] = config.ui.get("subtitle_position", "bottom")  # top, bottom, center, custom
     custom_position: float = config.ui.get("custom_position", 70.0)
     font_name: Optional[str] = "STHeitiMedium.ttc"

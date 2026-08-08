@@ -512,12 +512,51 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
     Otherwise, it will generate the subtitle using the specified provider.
     Returns:
         - subtitle_path: path to the generated subtitle file
+
+    Diana 8/8: 新增 LRC 分支 - 用户上传 LRC 歌词后, 优先用 LRC 时间戳生成字幕
     '''
     logger.info("\n\n## generating subtitle")
     if not params.subtitle_enabled:
         return ""
 
     subtitle_path = path.join(utils.task_dir(task_id), "subtitle.srt")
+
+    # === Diana 8/8: LRC 歌词精准对齐分支 ===
+    lrc_file = getattr(params, "lrc_file", None)
+    if lrc_file and os.path.isfile(lrc_file):
+        logger.info(f"\n\n## generating subtitle from LRC: {lrc_file}")
+        # 根据音频时长计算默认字幕持续时间
+        try:
+            import librosa
+            y, sr = librosa.load(audio_file, sr=None)
+            audio_duration = len(y) / sr
+        except Exception:
+            audio_duration = 3.0
+        # 按音频总时长 / 歌词数 计算平均持续时间, 默认 3s
+        try:
+            with open(lrc_file, "r", encoding="utf-8-sig") as f:
+                lrc_content = f.read()
+            from app.services.subtitle import parse_lrc
+            entries = parse_lrc(lrc_content)
+            if entries:
+                avg_duration = audio_duration / max(len(entries), 1)
+                default_duration = max(2.0, min(8.0, avg_duration))
+            else:
+                default_duration = 3.0
+        except Exception:
+            default_duration = 3.0
+
+        # 转换 LRC → SRT
+        from app.services.subtitle import lrc_file_to_srt
+        count = lrc_file_to_srt(lrc_file, subtitle_path, default_duration_sec=default_duration)
+        if count > 0 and os.path.exists(subtitle_path):
+            logger.info(f"LRC subtitle generated: {subtitle_path} ({count} entries)")
+            return subtitle_path
+        else:
+            logger.warning(
+                f"LRC subtitle generation failed ({count} entries), "
+                "falling through to default subtitle generation"
+            )
     subtitle_provider = config.app.get("subtitle_provider", "edge").strip().lower()
     logger.info(f"\n\n## generating subtitle, provider: {subtitle_provider}")
 

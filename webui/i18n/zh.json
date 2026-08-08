@@ -334,6 +334,12 @@
     "MV Chorus Match Keywords": "匹配搜索关键字",
     "MV Chorus Match Style": "风格",
     "MV Chorus No Matching Section": "该高潮段未匹配到意境方案中, 请重新生成",
-    "Apply Chorus Keywords Button": "🎵 应用该段关键词到搜索词"
+    "Apply Chorus Keywords Button": "🎵 应用该段关键词到搜索词",
+    "Use LRC Subtitles": "使用 LRC 歌词精准对齐字幕",
+    "Use LRC Subtitles Help": "勾选后上传 LRC 歌词文件, 字幕按歌词时间轴精准对齐, 比 TTS/Whisper 推断更准",
+    "Upload LRC File": "上传 LRC 歌词文件",
+    "Upload LRC File Help": "上传 .lrc 文件 (支持 UTF-8/GBK/增强 LRC, 包含逐字时间戳 <00:00.00>)",
+    "LRC Upload Success": "✅ LRC 歌词已上传: {name}",
+    "LRC Current File": "📄 当前: {path} ({size} 字节)"
   }
 }
