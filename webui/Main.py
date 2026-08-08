@@ -3280,22 +3280,28 @@ def _render_audio_analysis_panel(uploaded_audio_file):
         st.caption(tr("Audio Analysis No Audio"))
         return
 
-    # 按钮触发
-    if st.button(
+    # 按钮触发 - 用 callback 避免在 widget render 后改 session_state
+    # (上传本身是 file_uploader widget, 有 key 会触发 StreamlitAPIException)
+    # callback 可以调 spinner / set_state (streamlit 1.30+ 支持)
+    def _analyze_audio_callback(uploaded_file):
+        """widget 实例化前调用, 在这里调分析服务写 session_state 安全"""
+        with st.spinner(tr("Analyze Music Running")):
+            try:
+                result = _run_audio_mv_analysis(uploaded_file)
+                st.session_state[_MV_AUDIO_SESSION_KEY] = result
+            except Exception as exc:
+                logger.error(f"mv_audio_analysis failed: {exc}")
+                st.error(tr("Audio Analysis Failed").format(error=str(exc)))
+
+    st.button(
         tr("Analyze Music Button"),
         key="mv_analyze_music_button",
         use_container_width=True,
         type="secondary",
         help="调用音频分析服务, 提取曲调特征 + AI 意境方案",
-    ):
-        with st.spinner(tr("Analyze Music Running")):
-            try:
-                result = _run_audio_mv_analysis(uploaded_audio_file)
-                st.session_state[_MV_AUDIO_SESSION_KEY] = result
-            except Exception as exc:
-                logger.error(f"mv_audio_analysis failed: {exc}")
-                st.error(tr("Audio Analysis Failed").format(error=str(exc)))
-                return
+        on_click=_analyze_audio_callback,
+        args=(uploaded_audio_file,),
+    )
 
     # 从 session_state 取上次结果展示 (rerun 后不丢)
     result = st.session_state.get(_MV_AUDIO_SESSION_KEY)
@@ -3331,68 +3337,79 @@ def _render_audio_analysis_panel(uploaded_audio_file):
         st.markdown("---")
         st.markdown(_format_mv_plan_for_humans(plan))
 
-        # 一键应用按钮
+        # 一键应用按钮 - 用 callback 避免 StreamlitAPIException
+        # (不能 widget 实例化后修改其 session_state key)
         st.markdown("---")
         apply_cols = st.columns(3)
+        mood_summary = plan.get("mood_summary", "")
+        keywords_en = plan.get("theme_keywords_en", [])
+
+        def _apply_mood_callback(ms: str, ver: int):
+            """Callback: widget 实例化前调用, 不会触发 StreamlitAPIException"""
+            existing = st.session_state.get("video_script", "") or ""
+            separator = "\n\n" if existing.strip() else ""
+            st.session_state["video_script"] = (
+                existing.rstrip() + separator + ms
+            ).strip()
+            st.toast(tr("Audio Analysis LLM Run").format(version=ver), icon="✅")
+
+        def _apply_keywords_callback(kws: list):
+            existing = st.session_state.get("video_terms", "") or ""
+            new_terms = ", ".join(kws)
+            if existing.strip():
+                st.session_state["video_terms"] = (
+                    existing.rstrip().rstrip(",") + ", " + new_terms
+                )
+            else:
+                st.session_state["video_terms"] = new_terms
+            st.toast(f"Applied {len(kws)} English keywords", icon="✅")
+
+        def _apply_both_callback(ms: str, kws: list):
+            if ms:
+                existing = st.session_state.get("video_script", "") or ""
+                separator = "\n\n" if existing.strip() else ""
+                st.session_state["video_script"] = (
+                    existing.rstrip() + separator + ms
+                ).strip()
+            if kws:
+                existing_terms = st.session_state.get("video_terms", "") or ""
+                new_terms = ", ".join(kws)
+                if existing_terms.strip():
+                    st.session_state["video_terms"] = (
+                        existing_terms.rstrip().rstrip(",") + ", " + new_terms
+                    )
+                else:
+                    st.session_state["video_terms"] = new_terms
+            st.toast("✅ Applied to both fields", icon="✨")
+
         with apply_cols[0]:
-            if st.button(
+            st.button(
                 tr("Apply Mood To Script Button"),
                 key="mv_apply_mood_to_script",
                 use_container_width=True,
-            ):
-                mood_summary = plan.get("mood_summary", "")
-                if mood_summary:
-                    # Q2 = B: 追加 (用户内容 + 分析总结, 换行分隔)
-                    existing = st.session_state.get("video_script", "") or ""
-                    separator = "\n\n" if existing.strip() else ""
-                    new_content = (existing.rstrip() + separator + mood_summary).strip()
-                    st.session_state["video_script"] = new_content
-                    st.toast(tr("Audio Analysis LLM Run").format(version=version), icon="✅")
-                    st.rerun()
+                disabled=not mood_summary,
+                on_click=_apply_mood_callback,
+                args=(mood_summary, version),
+            )
         with apply_cols[1]:
-            if st.button(
+            st.button(
                 tr("Apply English Keywords Button"),
                 key="mv_apply_keywords_en",
                 use_container_width=True,
-            ):
-                keywords_en = plan.get("theme_keywords_en", [])
-                if keywords_en:
-                    # video_terms 是英文逗号分隔的字符串
-                    existing_terms = st.session_state.get("video_terms", "") or ""
-                    new_terms = ", ".join(keywords_en)
-                    if existing_terms.strip():
-                        new_content = existing_terms.rstrip().rstrip(",") + ", " + new_terms
-                    else:
-                        new_content = new_terms
-                    st.session_state["video_terms"] = new_content
-                    st.toast(f"Applied {len(keywords_en)} English keywords", icon="✅")
-                    st.rerun()
+                disabled=not keywords_en,
+                on_click=_apply_keywords_callback,
+                args=(keywords_en,),
+            )
         with apply_cols[2]:
-            if st.button(
+            st.button(
                 tr("Apply Both Button"),
                 key="mv_apply_both",
                 use_container_width=True,
                 type="primary",
-            ):
-                mood_summary = plan.get("mood_summary", "")
-                keywords_en = plan.get("theme_keywords_en", [])
-                if mood_summary:
-                    existing = st.session_state.get("video_script", "") or ""
-                    separator = "\n\n" if existing.strip() else ""
-                    st.session_state["video_script"] = (
-                        existing.rstrip() + separator + mood_summary
-                    ).strip()
-                if keywords_en:
-                    existing_terms = st.session_state.get("video_terms", "") or ""
-                    new_terms = ", ".join(keywords_en)
-                    if existing_terms.strip():
-                        st.session_state["video_terms"] = (
-                            existing_terms.rstrip().rstrip(",") + ", " + new_terms
-                        )
-                    else:
-                        st.session_state["video_terms"] = new_terms
-                st.toast("✅ Applied to both fields", icon="✨")
-                st.rerun()
+                disabled=not (mood_summary or keywords_en),
+                on_click=_apply_both_callback,
+                args=(mood_summary, keywords_en),
+            )
 
 
 def _render_background_music_settings(params, elevenlabs_api_key_rendered=False):
