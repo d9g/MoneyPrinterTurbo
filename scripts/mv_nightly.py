@@ -194,6 +194,9 @@ def main() -> int:
         try:
             resp = submit_task(args.api, params)
             task_id = resp.get("task_id") or resp.get("id")
+            if not task_id:
+                # 审计 P1-4: API 返回 200 但 body 无 task_id (错误响应), 立即报错
+                raise RuntimeError(f"API 返回无 task_id: {resp}")
             print(f"  ✅ task_id: {task_id}")
             final = poll_task(args.api, task_id, timeout_s=args.timeout)
             print(f"  🎬 完成: {final}")

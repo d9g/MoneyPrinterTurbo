@@ -87,8 +87,12 @@ def _translate_keywords_to_en(cn_keywords: list[str]) -> list[str]:
 
 def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
     """规则版降级方案 (LLM 失败 + 无缓存时使用)"""
-    tempo_class = audio_features["tempo"]["tempo_class"].split(" ")[0]
-    key = audio_features["key_info"]["key"]
+    # 审计 P2-5: 任何字段缺失/异常都兑底, 不抛 KeyError
+    tempo_obj = audio_features.get("tempo") or {}
+    tempo_class_raw = tempo_obj.get("tempo_class", "") if isinstance(tempo_obj, dict) else ""
+    tempo_class = tempo_class_raw.split(" ")[0] if tempo_class_raw else "节奏"
+    key_obj = audio_features.get("key_info") or {}
+    key = key_obj.get("key", "C") if isinstance(key_obj, dict) else "C"
     keywords = _FALLBACK_TEMPO_MOOD.get(tempo_class, ["节奏"])
     sections = audio_features.get("sections", [])
     n = len(sections) if sections else 6

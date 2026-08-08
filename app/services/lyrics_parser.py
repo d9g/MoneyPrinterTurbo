@@ -117,6 +117,9 @@ def _xor_decrypt(data: bytes, key: bytes = b"") -> bytes:
     if not key:
         # QQ 音乐 QRC 常用 key 列表 (按优先级尝试)
         for k in [b"@uttar-3f", b"taobao1234", b"", b"QRC\x00"]:
+            # 审计 P2-1: 跳过空 key (k[i % len(k)] 会 ZeroDivisionError 被 except 吞, 无效分支)
+            if not k:
+                continue
             try:
                 decrypted = bytes(b ^ k[i % len(k)] for i, b in enumerate(data))
                 if _looks_like_xml(decrypted):
