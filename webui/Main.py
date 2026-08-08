@@ -2959,6 +2959,442 @@ def _render_elevenlabs_api_key_input(label_key):
     return entered_key
 
 
+# ================ 音频分析模块 (老杨 8/8 13:19 拍板) ================
+# 上传音频后点"分析这首音乐"按钮 → 调老杨新开发的 mv.analyze 服务 →
+# 回显曲调特征 + 意境总结 + 一键填充到 video_script / video_terms 两个输入框。
+# 缓存策略: 同 song_signature 重跑 ≤ 3 次, 超过读缓存; 缓存超过 180 天才允许重跑 (Q5 老杨拍板).
+
+_MV_CACHE_REANALYZE_LIMIT = 3     # 同 signature 重跑上限
+_MV_CACHE_TTL_DAYS = 180          # 超过 N 天才允许重新调 LLM (半年到 1 年阈值下限)
+_MV_AUDIO_SESSION_KEY = "mv_audio_analysis_result"  # session_state 里存结果的 key
+
+
+def _init_mv_runtime():
+    """按需初始化 mv 模块 DB + IntentRepository (单例, 幂等)"""
+    from app.config import config
+    from app.services.mv.db import init_db as init_mv_db
+    from app.services.mv import get_intent_repository
+
+    db_path = config.app.get("mv_intent_db_path", "storage/mv/mv_intent.db")
+    init_mv_db(db_path)
+    # get_intent_repository 也是模块级单例, db_path 只首次需要
+    repo = get_intent_repository(db_path)
+    return db_path, repo
+
+
+def _compute_song_signature_for_upload(audio_path: str, features: dict, id3_meta) -> tuple[str, dict]:
+    """跟 mv.py 路由里一致的三层签名计算 (ID3 > metadata > audio fingerprint)"""
+    from app.services.audio import compute_song_signature
+    from app.services.audio.preprocess import preprocess_audio
+
+    y, sr = preprocess_audio(audio_path)
+    signature_str, signature_meta = compute_song_signature(
+        audio_path=audio_path,
+        y=y,
+        sr=sr,
+        duration=features["duration_seconds"],
+        bpm=features["tempo"]["bpm"],
+        key=features["key_info"]["key"],
+        id3_artist=id3_meta.artist if id3_meta else None,
+        id3_title=id3_meta.title if id3_meta else None,
+    )
+    return signature_str, signature_meta
+
+
+def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dict, str]:
+    """Q5 缓存策略判断
+
+    Returns:
+        (should_run, latest_record_or_None, reason)
+        reason: 'first_run' / 'within_limit' / 'cache_fresh' / 'cache_expired'
+    """
+    from datetime import datetime, timedelta
+
+    latest = repo.get_latest(audio_id) if audio_id else None
+    if not latest:
+        return True, None, "first_run"
+
+    # 同 audio_id 看重跑次数
+    version_count = repo.count_versions(audio_id)
+    if version_count < _MV_CACHE_REANALYZE_LIMIT:
+        return True, latest, f"within_limit (v{version_count}/{_MV_CACHE_REANALYZE_LIMIT})"
+
+    # version_count >= 3, 看时间间隔
+    try:
+        last_update = datetime.fromisoformat(latest.created_at.replace("Z", "+00:00")) if isinstance(latest.created_at, str) else latest.created_at
+        if last_update is None:
+            return False, latest, "cache_fresh"
+        # 转 naive UTC 跟 now() 比较
+        if last_update.tzinfo:
+            from datetime import timezone
+            last_update_naive = last_update.astimezone(timezone.utc).replace(tzinfo=None)
+        else:
+            last_update_naive = last_update
+        if datetime.utcnow() - last_update_naive > timedelta(days=_MV_CACHE_TTL_DAYS):
+            return True, latest, f"cache_expired (>{_MV_CACHE_TTL_DAYS} days)"
+    except Exception:
+        pass
+
+    return False, latest, "cache_fresh"
+
+
+def _format_audio_features_for_humans(features: dict) -> str:
+    """曲调特征 → 人类可读的中文摘要（含专业词汇）"""
+    tempo = features.get("tempo", {})
+    key_info = features.get("key_info", {})
+    pitch = features.get("pitch_range", {})
+    dynamic = features.get("dynamic", {})
+    spectral = features.get("spectral", {})
+    style = features.get("style") or {}
+    id3_meta = features.get("id3_metadata") or {}
+
+    lines = []
+    if id3_meta.get("title") or id3_meta.get("artist"):
+        title = id3_meta.get("title") or "(未知标题)"
+        artist = id3_meta.get("artist") or "(未知歌手)"
+        lines.append(f"🎼 歌曲: **{title}** — {artist}")
+    else:
+        lines.append(f"🎼 音频时长: **{features.get('duration_seconds', 0):.1f} 秒**")
+
+    # 节奏
+    bpm = tempo.get("bpm")
+    tempo_class = tempo.get("tempo_class", "")
+    tempo_italian = tempo.get("tempo_italian", "")
+    tempo_desc = tempo.get("tempo_description", "")
+    if bpm:
+        lines.append(f"🥁 **节奏 (Tempo)**: {bpm:.0f} BPM → {tempo_class} ({tempo_italian}) — {tempo_desc}")
+
+    # 调性
+    key_name = key_info.get("key", "")
+    key_cn = key_info.get("key_chinese", "")
+    key_desc = key_info.get("key_description", "")
+    confidence = key_info.get("confidence", 0)
+    if key_name:
+        lines.append(f"🎹 **调性 (Key)**: {key_name} ({key_cn}, 置信度 {confidence:.0%}) — {key_desc}")
+
+    # 音域
+    low = pitch.get("low_note", "")
+    high = pitch.get("high_note", "")
+    semitones = pitch.get("range_semitones", 0)
+    if low and high:
+        lines.append(f"🎤 **音域 (Pitch Range)**: {low} → {high}, 跨 {semitones} 个半音")
+
+    # 动态
+    dyn_db = dynamic.get("dynamic_range_db")
+    dyn_class = dynamic.get("dynamic_class", "")
+    dyn_mark = dynamic.get("dynamic_mark", "")
+    if dyn_db is not None:
+        lines.append(f"🔊 **动态 (Dynamics)**: {dyn_db:.1f} dB, {dyn_class} (力度记号 {dyn_mark})")
+
+    # 频谱亮度
+    bright = spectral.get("brightness_hz")
+    if bright:
+        lines.append(f"✨ **频谱亮度 (Brightness)**: {bright:.0f} Hz")
+
+    # 段落数
+    sections = features.get("sections", [])
+    if sections:
+        lines.append(f"📐 **段落 (Sections)**: {len(sections)} 段")
+
+    # 风格识别 (Diana 3.1)
+    if style:
+        genre = style.get("genre", "")
+        genre_conf = style.get("genre_confidence", 0)
+        mood = style.get("mood", "")
+        valence = style.get("mood_valence")
+        energy = style.get("mood_energy")
+        acousticness = style.get("acousticness")
+        vocal_type = style.get("vocal_type", "")
+        instruments = style.get("dominant_instruments", [])
+        if genre:
+            lines.append(f"🎵 **风格 (Genre)**: {genre} (置信度 {genre_conf:.0%})")
+        if mood:
+            mood_bits = [f"情绪: {mood}"]
+            if valence is not None:
+                valence_word = "积极" if valence >= 0.6 else ("中性" if valence >= 0.4 else "消极")
+                mood_bits.append(f"效价 {valence:.2f} ({valence_word})")
+            if energy is not None:
+                energy_word = "激昂" if energy >= 0.6 else ("中等" if energy >= 0.3 else "平静")
+                mood_bits.append(f"能量 {energy:.2f} ({energy_word})")
+            lines.append(f"💫 **情绪维度 (Mood)**: {' · '.join(mood_bits)}")
+        if acousticness is not None:
+            ac_word = "原声" if acousticness >= 0.6 else ("半原声" if acousticness >= 0.3 else "电子")
+            lines.append(f"🎚️ **原声比重 (Acousticness)**: {acousticness:.2f} ({ac_word})")
+        if vocal_type:
+            lines.append(f"🗣️ **人声类型 (Vocal)**: {vocal_type}")
+        if instruments:
+            lines.append(f"🎹 **主乐器 (Instruments)**: {', '.join(instruments)}")
+
+    return "\n\n".join(lines)
+
+
+def _format_mv_plan_for_humans(plan: dict) -> str:
+    """mv_plan → 人类可读摘要"""
+    lines = []
+    mood_summary = plan.get("mood_summary", "")
+    if mood_summary:
+        lines.append(f"## 🎨 意境总结 (Mood)\n\n{mood_summary}")
+
+    keywords_cn = plan.get("theme_keywords_cn", [])
+    keywords_en = plan.get("theme_keywords_en", [])
+    if keywords_cn or keywords_en:
+        lines.append("## 🏷️ 关键词 (Theme Keywords)")
+        if keywords_cn:
+            lines.append(f"**中文**: {' · '.join(keywords_cn)}")
+        if keywords_en:
+            lines.append(f"**英文 (用于素材检索)**: {', '.join(keywords_en)}")
+
+    palette = plan.get("color_palette", [])
+    if palette:
+        lines.append(f"## 🎨 配色方案 (Color Palette)\n\n{' · '.join(palette)}")
+
+    transitions = plan.get("transition_style", "")
+    if transitions:
+        lines.append(f"**转场风格**: {transitions}")
+
+    subtitle_style = plan.get("subtitle_style", "")
+    if subtitle_style:
+        lines.append(f"**字幕样式**: {subtitle_style}")
+
+    video_prompts = plan.get("video_prompts", [])
+    if video_prompts:
+        lines.append(f"\n## 🎬 段落拍摄提示 ({len(video_prompts)} 段)")
+        for vp in video_prompts[:8]:  # 最多展示 8 段避免过长
+            label = vp.get("label", f"段 {vp.get('section_index', '?')}")
+            prompt = vp.get("prompt", "")
+            style = vp.get("style", "")
+            lines.append(f"- **{label}**: `{prompt}` — {style}")
+        if len(video_prompts) > 8:
+            lines.append(f"- ...(还有 {len(video_prompts) - 8} 段)")
+
+    return "\n\n".join(lines)
+
+
+def _run_audio_mv_analysis(
+    uploaded_audio_file,
+    lyrics_text: str = "",
+) -> dict:
+    """老杨 8/8 拍板的核心函数: 上传音频 → 调 mv.analyze 服务 → 返回 plan + features
+
+    流程:
+    1. 把 streamlit 上传文件存到 storage/mv/ (跟 FastAPI 路由一致)
+    2. 计算 file_id (mva-xxxxxxxx.{ext})
+    3. analyze_audio() 提取特征
+    4. compute_song_signature() 三层签名
+    5. Q5 缓存策略: 看是否要重跑 LLM
+    6. MvPlanner.build() 出方案
+    7. 返回 {plan, features, signature, audio_id, source}
+
+    Raises:
+        ValueError: 文件无效
+        RuntimeError: LLM/分析失败
+    """
+    import time as _time
+    from pathlib import Path
+
+    from app.services.audio import analyze_audio, AudioAnalyzerError
+    from app.services.mv_planner import MvPlanner
+    from app.config import config
+
+    if uploaded_audio_file is None:
+        raise ValueError("uploaded_audio_file is None")
+
+    db_path, repo = _init_mv_runtime()
+
+    # 1. 保存文件到 storage/mv/ (跟 FastAPI 路由一致)
+    storage_mv_dir = Path(config.app.get("storage_mv_dir", "storage/mv"))
+    storage_mv_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = Path(uploaded_audio_file.name or "audio.mp3").name
+    ext = Path(safe_name).suffix.lower()
+    if not ext:
+        raise ValueError("uploaded audio has no extension")
+
+    import uuid as _uuid
+    file_id = f"mva-{_uuid.uuid4().hex[:12]}{ext}"
+    abs_path = storage_mv_dir / file_id
+    with abs_path.open("wb") as f:
+        f.write(uploaded_audio_file.getbuffer())
+
+    # 2. 音频分析
+    try:
+        features_obj = analyze_audio(str(abs_path))
+    except AudioAnalyzerError as exc:
+        raise RuntimeError(f"audio analyze failed: {exc}") from exc
+    features = features_obj.to_dict()
+    id3_meta = features_obj.id3_metadata
+
+    # 3. song_signature
+    signature_str, signature_meta = _compute_song_signature_for_upload(
+        str(abs_path), features, id3_meta
+    )
+
+    # 4. Q5 缓存策略
+    should_run, latest, reason = _should_run_llm(repo, file_id, signature_str)
+    logger.info(f"mv_audio_analysis: should_run={should_run} reason={reason}")
+
+    # 5. 决定: 重跑 / 复用缓存
+    if should_run:
+        planner = MvPlanner(db_path=db_path)
+        plan = planner.build(
+            audio_features=features,
+            lyrics=lyrics_text,
+            audio_id=file_id,
+            song_signature=signature_str,
+            duration_seconds=features["duration_seconds"],
+            artist=id3_meta.artist if id3_meta else None,
+            title=id3_meta.title if id3_meta else None,
+        )
+        source = plan.get("_source", "unknown")
+        version = plan.get("_version", 0)
+    else:
+        # 复用历史缓存
+        plan = dict(latest.intent)
+        plan["_source"] = "cache_reuse"
+        plan["_version"] = latest.version
+        plan["_cache_reason"] = reason
+        source = "cache_reuse"
+        version = latest.version
+
+    return {
+        "plan": plan,
+        "features": features,
+        "signature": signature_str,
+        "signature_meta": signature_meta,
+        "audio_id": file_id,
+        "audio_path": str(abs_path),
+        "source": source,
+        "version": version,
+        "cache_decision": reason,
+        "latency_ms": plan.get("_latency_ms", 0),
+    }
+
+
+def _render_audio_analysis_panel(uploaded_audio_file):
+    """老杨 8/8 拍板的 UI: 上传音频后点按钮 → expander 回显曲调特征 + 意境 + 一键应用
+
+    Args:
+        uploaded_audio_file: streamlit file_uploader 返回的对象
+    """
+    if uploaded_audio_file is None:
+        st.caption(tr("Audio Analysis No Audio"))
+        return
+
+    # 按钮触发
+    if st.button(
+        tr("Analyze Music Button"),
+        key="mv_analyze_music_button",
+        use_container_width=True,
+        type="secondary",
+        help="调用音频分析服务, 提取曲调特征 + AI 意境方案",
+    ):
+        with st.spinner(tr("Analyze Music Running")):
+            try:
+                result = _run_audio_mv_analysis(uploaded_audio_file)
+                st.session_state[_MV_AUDIO_SESSION_KEY] = result
+            except Exception as exc:
+                logger.error(f"mv_audio_analysis failed: {exc}")
+                st.error(tr("Audio Analysis Failed").format(error=str(exc)))
+                return
+
+    # 从 session_state 取上次结果展示 (rerun 后不丢)
+    result = st.session_state.get(_MV_AUDIO_SESSION_KEY)
+    if not result:
+        return
+
+    plan = result["plan"]
+    features = result["features"]
+    source = result["source"]
+    version = result["version"]
+    cache_decision = result.get("cache_decision", "")
+
+    with st.expander(tr("Audio Analysis Panel"), expanded=False):
+        # 来源 + 版本
+        source_label = {
+            "llm": tr("MV Plan Source LLM"),
+            "cache_fallback": tr("MV Plan Source Cache"),
+            "cache_reuse": tr("MV Plan Source Cache"),
+            "fallback_rule": tr("MV Plan Source Fallback"),
+        }.get(source, source)
+        meta_cols = st.columns([2, 1])
+        with meta_cols[0]:
+            st.caption(f"{tr('MV Plan Source')}: **{source_label}**")
+            if cache_decision and source in ("cache_reuse", "llm"):
+                st.caption(f"💡 {cache_decision}")
+        with meta_cols[1]:
+            st.caption(f"{tr('MV Plan Version')}: v{version}")
+            if result.get("latency_ms"):
+                st.caption(f"⏱️ {result['latency_ms']} ms")
+
+        st.markdown("---")
+        st.markdown(_format_audio_features_for_humans(features))
+        st.markdown("---")
+        st.markdown(_format_mv_plan_for_humans(plan))
+
+        # 一键应用按钮
+        st.markdown("---")
+        apply_cols = st.columns(3)
+        with apply_cols[0]:
+            if st.button(
+                tr("Apply Mood To Script Button"),
+                key="mv_apply_mood_to_script",
+                use_container_width=True,
+            ):
+                mood_summary = plan.get("mood_summary", "")
+                if mood_summary:
+                    # Q2 = B: 追加 (用户内容 + 分析总结, 换行分隔)
+                    existing = st.session_state.get("video_script", "") or ""
+                    separator = "\n\n" if existing.strip() else ""
+                    new_content = (existing.rstrip() + separator + mood_summary).strip()
+                    st.session_state["video_script"] = new_content
+                    st.toast(tr("Audio Analysis LLM Run").format(version=version), icon="✅")
+                    st.rerun()
+        with apply_cols[1]:
+            if st.button(
+                tr("Apply English Keywords Button"),
+                key="mv_apply_keywords_en",
+                use_container_width=True,
+            ):
+                keywords_en = plan.get("theme_keywords_en", [])
+                if keywords_en:
+                    # video_terms 是英文逗号分隔的字符串
+                    existing_terms = st.session_state.get("video_terms", "") or ""
+                    new_terms = ", ".join(keywords_en)
+                    if existing_terms.strip():
+                        new_content = existing_terms.rstrip().rstrip(",") + ", " + new_terms
+                    else:
+                        new_content = new_terms
+                    st.session_state["video_terms"] = new_content
+                    st.toast(f"Applied {len(keywords_en)} English keywords", icon="✅")
+                    st.rerun()
+        with apply_cols[2]:
+            if st.button(
+                tr("Apply Both Button"),
+                key="mv_apply_both",
+                use_container_width=True,
+                type="primary",
+            ):
+                mood_summary = plan.get("mood_summary", "")
+                keywords_en = plan.get("theme_keywords_en", [])
+                if mood_summary:
+                    existing = st.session_state.get("video_script", "") or ""
+                    separator = "\n\n" if existing.strip() else ""
+                    st.session_state["video_script"] = (
+                        existing.rstrip() + separator + mood_summary
+                    ).strip()
+                if keywords_en:
+                    existing_terms = st.session_state.get("video_terms", "") or ""
+                    new_terms = ", ".join(keywords_en)
+                    if existing_terms.strip():
+                        st.session_state["video_terms"] = (
+                            existing_terms.rstrip().rstrip(",") + ", " + new_terms
+                        )
+                    else:
+                        st.session_state["video_terms"] = new_terms
+                st.toast("✅ Applied to both fields", icon="✨")
+                st.rerun()
+
+
 def _render_background_music_settings(params, elevenlabs_api_key_rendered=False):
     """渲染背景音乐来源与音量设置，并返回本次待保存的上传文件。"""
     uploaded_bgm_file = None
@@ -3577,6 +4013,8 @@ def _render_audio_settings(panel, params):
                             "Custom audio will be used directly. TTS synthesis will be skipped for this task."
                         )
                     )
+                    # 老杨 8/8 13:19 拍板: 上传音频后点按钮调 mv.analyze 服务
+                    _render_audio_analysis_panel(uploaded_audio_file)
             uploaded_bgm_file = _render_background_music_settings(
                 params,
                 elevenlabs_api_key_rendered=elevenlabs_api_key_rendered,

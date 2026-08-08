@@ -60,6 +60,31 @@ _FALLBACK_TEMPO_MOOD = {
 }
 
 
+_FALLBACK_KEYWORD_EN_MAP = {
+    "庄严": "solemn", "冥想": "meditation", "悠远": "ethereal",
+    "温柔": "gentle", "内省": "introspective", "诗意": "poetic",
+    "流动": "flowing", "温暖": "warm", "自然": "natural",
+    "明快": "bright", "活泼": "lively", "轻盈": "light",
+    "热烈": "passionate", "奔放": "exuberant", "活力": "energetic",
+    "急速": "rapid", "爆裂": "explosive", "冲击": "impact",
+    "极快": "extreme", "混沌": "chaotic", "高潮": "climax",
+    "节奏": "rhythm", "歌词": "lyrics", "音乐": "music",
+}
+
+
+def _translate_keywords_to_en(cn_keywords: list[str]) -> list[str]:
+    """中文关键词 → 英文 (规则映射, LLM 不可用时兑底)"""
+    out = []
+    for kw in cn_keywords:
+        translated = _FALLBACK_KEYWORD_EN_MAP.get(kw)
+        if translated:
+            out.append(translated)
+        else:
+            # 兑底: 保留中文 + 拼一个通用词
+            out.append(f"{kw} scene")
+    return out
+
+
 def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
     """规则版降级方案 (LLM 失败 + 无缓存时使用)"""
     tempo_class = audio_features["tempo"]["tempo_class"].split(" ")[0]
@@ -73,7 +98,8 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
             f"基于 {key} 调性 + {tempo_class} 节奏, 整体氛围以 {', '.join(keywords[:3])} 为主."
             + (f" 歌词提示: {lyrics[:50]}" if lyrics else "")
         ),
-        "theme_keywords": keywords + (["歌词"] if lyrics else ["音乐"]),
+        "theme_keywords_cn": keywords + (["歌词"] if lyrics else ["音乐"]),
+        "theme_keywords_en": _translate_keywords_to_en(keywords) + (["lyrics"] if lyrics else ["music"]),
         "color_palette": ["暖金琥珀", "暮色蓝灰", "柔光奶白"],
         "video_prompts": [
             {
@@ -101,7 +127,8 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 ```json
 {
   "mood_summary": "100-300 字中文, 诗化但具体, 包含意像+情绪+节奏感",
-  "theme_keywords": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5"],
+  "theme_keywords_cn": ["中文关键词1", "中文关键词2", "中文关键词3", "中文关键词4", "中文关键词5"],
+  "theme_keywords_en": ["English Keyword 1", "English Keyword 2", "English Keyword 3", "English Keyword 4", "English Keyword 5"],
   "color_palette": ["颜色名1", "颜色名2", "颜色名3", "颜色名4", "颜色名5"],
   "video_prompts": [
     {"section_index": 0, "label": "前奏", "prompt": "english keyword for pexels", "style": "中文风格描述"},
@@ -116,7 +143,8 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 - 所有字段必须存在, 不能遗漏
 - color_palette 是字符串数组 (中文颜色名), 不是对象
 - video_prompts 是数组, 每个元素必须含 section_index/label/prompt/style 四个字段
-- theme_keywords 5-10 个, 每个 2-4 字中文
+- **theme_keywords_cn 是中文关键词数组，5-10 个, 每个 2-4 字中文**
+- **theme_keywords_en 是对应英文 Pexels 搜索关键词，5-10 个, 每个 1-3 词英文（用于素材库检索, 必须返回字符串数组）**
 - 不要包含 hex 颜色代码, 只给中文颜色名
 - 不要输出 Markdown 代码块包裹, 直接输出 JSON
 
@@ -168,7 +196,7 @@ _USER_PROMPT_EVOLUTION = """# 进化模式 (Diana 3.3)
    - 更贴合歌词的段落切分
    - 更符合视频拍摄建议的 prompts
 3. 如果你认为上次已经足够好, 可以只做微调
-4. 输出必须包含字段: mood_summary, theme_keywords, color_palette, video_prompts, transition_style, subtitle_style
+4. 输出必须包含字段: mood_summary, theme_keywords_cn, theme_keywords_en, color_palette, video_prompts, transition_style, subtitle_style
 
 请输出最新版本 (JSON).
 """
@@ -441,7 +469,8 @@ class MvPlanner:
             history_table = "\n\n".join([
                 f"[version {h.version}] {h.created_at}\n"
                 f"意境: {h.intent.get('mood_summary', '')}\n"
-                f"关键词: {h.intent.get('theme_keywords', [])}\n"
+                f"中文关键词: {h.intent.get('theme_keywords_cn', [])}\n"
+                f"英文关键词: {h.intent.get('theme_keywords_en', [])}\n"
                 f"配色: {h.intent.get('color_palette', [])}"
                 for h in history[:3]
             ])
@@ -470,7 +499,8 @@ class MvPlanner:
             "version": h.version,
             "created_at": h.created_at,
             "mood_summary": h.intent.get("mood_summary"),
-            "theme_keywords": h.intent.get("theme_keywords"),
+            "theme_keywords_cn": h.intent.get("theme_keywords_cn"),
+            "theme_keywords_en": h.intent.get("theme_keywords_en"),
             "source": h.source,
         }
 
@@ -489,7 +519,7 @@ class MvPlanner:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
             raise MvPlannerError(f"LLM 输出非 JSON: {exc}; raw={text[:200]}") from exc
-        required = {"mood_summary", "theme_keywords", "video_prompts", "transition_style", "subtitle_style"}
+        required = {"mood_summary", "theme_keywords_cn", "theme_keywords_en", "video_prompts", "transition_style", "subtitle_style"}
         missing = required - set(data.keys())
         if missing:
             raise MvPlannerError(f"LLM 输出缺字段: {missing}")
