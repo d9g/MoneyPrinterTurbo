@@ -3610,7 +3610,10 @@ def _render_audio_analysis_dialog():
                 st.caption(f"{tr('MV Chorus Match Style')}: {chorus_style_cn}")
 
             # Apply 按钮 - 把该段关键词加入 video_terms
-            def _apply_chorus_keywords_callback(prompt: str, idx: int, ver: int):
+            # 老杨 8/8 21:09: 同时存 chorus 段 start/end 到 pending,
+            # 后面 _render_application() 读取时一并填到 video_script_params.
+            # 这样用户点一下 "金生成高潮段 MV", 整案就能生成该段独立 MV.
+            def _apply_chorus_keywords_callback(prompt: str, idx: int, start: float, end: float, ver: int):
                 pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
                 existing_terms = pending.get("video_terms_append", "")
                 new_terms = prompt.strip()
@@ -3622,6 +3625,9 @@ def _render_audio_analysis_dialog():
                     pending["video_terms_append"] = new_terms
                 pending["keyword_count"] = pending.get("keyword_count", 0) + 1
                 pending["chorus_index"] = idx
+                # 老杨 8/8 21:09: 高潮段独立 MV - 存 start/end 到 pending
+                pending["chorus_range_start"] = round(start, 2)
+                pending["chorus_range_end"] = round(end, 2)
                 pending["source_version"] = pending.get("source_version", ver)
                 st.session_state[_MV_PENDING_APPLY_KEY] = pending
                 st.session_state[_MV_DIALOG_FLAG_KEY] = False
@@ -3635,7 +3641,15 @@ def _render_audio_analysis_dialog():
                 type="secondary",
                 disabled=not chorus_prompt_en,
                 on_click=_apply_chorus_keywords_callback,
-                args=(chorus_prompt_en, selected_idx, version),
+                # 老杨 8/8 21:09: 传入 displayed_segments[selected_idx] (选中的 chorus segment)
+                #   .start / .end - 传个参数让 callback 知道当前选中段
+                args=(
+                    chorus_prompt_en,
+                    selected_idx,
+                    displayed_segments[selected_idx].get("start", 0.0) if 0 <= selected_idx < len(displayed_segments) else 0.0,
+                    displayed_segments[selected_idx].get("end", 0.0) if 0 <= selected_idx < len(displayed_segments) else 0.0,
+                    version,
+                ),
             )
         else:
             st.caption(tr("MV Chorus No Matching Section"))
@@ -4352,6 +4366,46 @@ def _render_audio_settings(panel, params):
                     )
                     # 老杨 8/8 13:19 拍板: 上传音频后点按钮调 mv.analyze 服务
                     _render_audio_analysis_panel(uploaded_audio_file)
+                    # 老杨 8/8 21:09: 高潮段独立 MV - 从 mv.audio.apply 后存到 session_state
+                    # audio_clip_range_start/audio_clip_range_end 这里以 expander 显示
+                    _audio_clip_range_start = st.session_state.get("audio_clip_range_start")
+                    _audio_clip_range_end = st.session_state.get("audio_clip_range_end")
+                    if _audio_clip_range_start is not None and _audio_clip_range_end is not None:
+                        with st.expander(f"📍 高潮段 MV: {_audio_clip_range_start:.1f}s - {_audio_clip_range_end:.1f}s ({_audio_clip_range_end - _audio_clip_range_start:.1f}s)", expanded=False):
+                            st.caption("选中高潮段后 即可生成该段 MV. 默认从你点击的精选段提取.")
+                            _range_cols = st.columns(2)
+                            with _range_cols[0]:
+                                _new_start = st.number_input(
+                                    "起始秒",
+                                    min_value=0.0,
+                                    max_value=600.0,
+                                    value=float(_audio_clip_range_start),
+                                    step=0.1,
+                                    key="audio_clip_range_start_input",
+                                )
+                            with _range_cols[1]:
+                                _new_end = st.number_input(
+                                    "结束秒",
+                                    min_value=0.0,
+                                    max_value=600.0,
+                                    value=float(_audio_clip_range_end),
+                                    step=0.1,
+                                    key="audio_clip_range_end_input",
+                                )
+                            if st.button("✅ 应用选定区间", key="audio_clip_range_apply", use_container_width=True):
+                                st.session_state["audio_clip_range_start"] = float(_new_start)
+                                st.session_state["audio_clip_range_end"] = float(_new_end)
+                                st.session_state["_mv_apply_message"] = (
+                                    f"✅ 高潮段: {_new_start:.1f}s-{_new_end:.1f}s ({_new_end - _new_start:.1f}s)"
+                                )
+                                st.session_state["_mv_apply_message_ts"] = time.time()
+                                st.rerun(scope="app")
+                            if st.button("🚮 清除高潮段", key="audio_clip_range_clear", use_container_width=True):
+                                st.session_state.pop("audio_clip_range_start", None)
+                                st.session_state.pop("audio_clip_range_end", None)
+                                st.session_state["_mv_apply_message"] = "🚮 高潮段已清除"
+                                st.session_state["_mv_apply_message_ts"] = time.time()
+                                st.rerun(scope="app")
             uploaded_bgm_file = _render_background_music_settings(
                 params,
                 elevenlabs_api_key_rendered=elevenlabs_api_key_rendered,
@@ -4815,6 +4869,15 @@ def _render_generation_controls(
             with open(custom_audio_path, "wb") as f:
                 f.write(uploaded_audio_file.getbuffer())
             params.custom_audio_file = custom_audio_path
+            # 老杨 8/8 21:09: 高潮段独立 MV - 从 session_state 拿 audio_clip_range_start/end
+            _audio_clip_range_start = st.session_state.get("audio_clip_range_start")
+            _audio_clip_range_end = st.session_state.get("audio_clip_range_end")
+            if _audio_clip_range_start is not None and _audio_clip_range_end is not None:
+                params.audio_clip_range_start = float(_audio_clip_range_start)
+                params.audio_clip_range_end = float(_audio_clip_range_end)
+            else:
+                params.audio_clip_range_start = None
+                params.audio_clip_range_end = None
 
         if uploaded_files:
             local_videos_dir = utils.storage_dir("local_videos", create=True)
@@ -4949,9 +5012,21 @@ def _apply_pending_mv_audio():
             f"✅ Applied mood (v{pending.get('source_version', 0)})"
         )
     elif terms_append and keyword_count:
-        st.session_state["_mv_apply_message"] = (
-            f"✅ Applied {keyword_count} English keywords"
-        )
+        # 老杨 8/8 21:09: 高潮段独立 MV - 拿到 chorus_range_start/end
+        # 写到 session_state. 后交参数采集时使用生成高潮段 MV
+        chorus_start = pending.get("chorus_range_start")
+        chorus_end = pending.get("chorus_range_end")
+        if chorus_start is not None and chorus_end is not None:
+            st.session_state["audio_clip_range_start"] = float(chorus_start)
+            st.session_state["audio_clip_range_end"] = float(chorus_end)
+            chorus_idx = pending.get("chorus_index", 0)
+            st.session_state["_mv_apply_message"] = (
+                f"✅ 第 {chorus_idx + 1} 高潮段: {chorus_start:.1f}s-{chorus_end:.1f}s, 一键生成高频 MV"
+            )
+        else:
+            st.session_state["_mv_apply_message"] = (
+                f"✅ Applied {keyword_count} English keywords"
+            )
     else:
         st.session_state["_mv_apply_message"] = "✅ Applied"
     st.session_state["_mv_apply_message_ts"] = time.time()
