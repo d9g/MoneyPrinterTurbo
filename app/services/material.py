@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import threading
 from pathlib import Path
 from typing import Any, Callable, List
@@ -756,6 +757,80 @@ def _search_videos_with_cache(
         return items
 
 
+# === 安全关键词改写 (Diana 8/8 拍板) ===
+# 老杨暗藏规则: 避免面部特写 + 避免静态特写 + 摇曳模糊优先
+_PEOPLE_KEYWORDS = (
+    "runner", "jogger", "athlete", "biker", "cyclist",
+    "person", "people", "woman", "women", "man", "men",
+    "girl", "boy", "human", "figure",
+)
+_BANNED_KEYWORDS = (
+    "face", "facial", "portrait", "close-up", "closeup",
+    "head shot", "headshot", "selfie",
+)
+_SAFETY_BASE_SUFFIX = "cinematic shot bokeh side view"
+_SAFETY_MOTION_SUFFIX = "motion blur slow motion"
+
+def _has_people_keyword(term: str) -> bool:
+    """检测关键词里是否包含人相关词"""
+    lower = term.lower()
+    return any(kw in lower for kw in _PEOPLE_KEYWORDS)
+
+
+def _has_banned_keyword(term: str) -> bool:
+    """检测关键词里是否包含禁止词 (面部/正面/特写)"""
+    lower = term.lower()
+    return any(kw in lower for kw in _BANNED_KEYWORDS)
+
+
+def _expand_search_terms_for_safety(search_terms: List[str]) -> List[str]:
+    """根据暗藏规则改写关键词, 避免人脸特写 + 静态特写
+
+    老杨 8/8 拍板:
+    1. 通用追加 cinematic shot, bokeh, side view (避免正面)
+    2. 通用追加 motion blur 或 slow motion (避免静态特写)
+    3. 检测到人相关词 (runner/woman/man/person/jogger) → 强制加防面部后缀
+    4. 检测到禁止词 (face/portrait/close-up/head shot/selfie/front view) → 改写避免
+
+    Args:
+        search_terms: 原始关键词列表
+
+    Returns:
+        改写后的关键词列表 (每个原关键词展开为多个变体)
+    """
+    expanded = []
+    for term in search_terms:
+        lower = term.lower()
+        # 1. 检测到禁止词 → 改写避免
+        if _has_banned_keyword(lower):
+            # 替换禁止词为安全变体
+            safe = term
+            for banned in _BANNED_KEYWORDS:
+                if banned in safe.lower():
+                    safe = re.sub(banned, "side view silhouette", safe, flags=re.IGNORECASE)
+                    break
+            expanded.append(safe)
+            expanded.append(f"{safe} blurred reflection glass")
+            logger.info(f"[safety] banned keyword rewritten: {term!r} -> {safe!r}")
+            continue
+
+        # 2. 检测到人相关词 → 加防面部后缀
+        if _has_people_keyword(lower):
+            # 加 cinematic + bokeh + side view + motion blur + 额外防面部变体
+            expanded.append(f"{term} {_SAFETY_BASE_SUFFIX} {_SAFETY_MOTION_SUFFIX}")
+            expanded.append(f"{term} silhouette back view cinematic")
+            expanded.append(f"{term} blurred rain night reflection")
+            logger.info(f"[safety] people keyword expanded: {term!r} -> 3 variants")
+            continue
+
+        # 3. 普通关键词 → 加基础安全后缀
+        expanded.append(f"{term} {_SAFETY_BASE_SUFFIX}")
+        expanded.append(f"{term} {_SAFETY_MOTION_SUFFIX}")
+        logger.info(f"[safety] normal keyword expanded: {term!r} -> 2 variants")
+
+    return expanded
+
+
 def download_videos(
     task_id: str,
     search_terms: List[str],
@@ -766,6 +841,13 @@ def download_videos(
     max_clip_duration: int = 5,
     match_script_order: bool = False,
 ) -> List[str]:
+    # === 关键词安全过滤 (Diana 8/8) ===
+    # 暗藏规则: 避免人脸特写 + 静态特写 + 摇曳模糊优先
+    search_terms = _expand_search_terms_for_safety(search_terms)
+    logger.info(
+        f"[download_videos] after safety filter, total {len(search_terms)} search variants"
+    )
+
     provider = "pexels"
     remote_search_videos = search_videos_pexels
     if source == "pixabay":
