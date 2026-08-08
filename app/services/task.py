@@ -672,24 +672,63 @@ def generate_final_videos(
             utils.task_dir(task_id), f"combined-{index}.mp4"
         )
         logger.info(f"\n\n## combining video: {index} => {combined_video_path}")
-        video.combine_videos(
-            combined_video_path=combined_video_path,
-            video_paths=downloaded_videos,
-            audio_file=audio_file,
-            video_aspect=params.video_aspect,
-            video_concat_mode=video_concat_mode,
-            video_transition_mode=video_transition_mode,
-            max_clip_duration=params.video_clip_duration,
-            threads=params.n_threads,
-            clip_speed=params.video_clip_speed,
-            # 老杨 8/8 21:09: 高潮段独立 MV - 截取音频区间
-            audio_clip_range=(
-                (params.audio_clip_range_start, params.audio_clip_range_end)
-                if params.audio_clip_range_start is not None
-                and params.audio_clip_range_end is not None
-                else None
-            ),
-        )
+        # 老杨 8/8 21:31: 按段落拼接 - 使用 LLM video_prompts 按段独立下载拼接
+        if getattr(params, "use_segmented_concat", False):
+            from app.services.mv.segment_builder import build_segments
+            segments = build_segments(
+                plan=getattr(params, "mv_plan", None),
+                features=getattr(params, "mv_features", None),
+                audio_clip_range=(
+                    (params.audio_clip_range_start, params.audio_clip_range_end)
+                    if params.audio_clip_range_start is not None
+                    and params.audio_clip_range_end is not None
+                    else None
+                ),
+            )
+            logger.info(
+                f"segmented_concat: plan="
+                f"{len(getattr(params, 'mv_plan', {}).get('video_prompts', [])) if getattr(params, 'mv_plan', None) else 0} prompts, "
+                f"segments={len(segments)}"
+            )
+            if not segments:
+                logger.warning("segmented_concat: no segments built, fallback to standard combine_videos")
+            else:
+                video.combine_videos_segmented(
+                    combined_video_path=combined_video_path,
+                    segments=segments,
+                    audio_file=audio_file,
+                    video_aspect=params.video_aspect,
+                    video_concat_mode=video_concat_mode,
+                    video_transition_mode=video_transition_mode,
+                    max_clip_duration=params.video_clip_duration,
+                    threads=params.n_threads,
+                    clip_speed=params.video_clip_speed,
+                    audio_clip_range=(
+                        (params.audio_clip_range_start, params.audio_clip_range_end)
+                        if params.audio_clip_range_start is not None
+                        and params.audio_clip_range_end is not None
+                        else None
+                    ),
+                )
+        else:
+            video.combine_videos(
+                combined_video_path=combined_video_path,
+                video_paths=downloaded_videos,
+                audio_file=audio_file,
+                video_aspect=params.video_aspect,
+                video_concat_mode=video_concat_mode,
+                video_transition_mode=video_transition_mode,
+                max_clip_duration=params.video_clip_duration,
+                threads=params.n_threads,
+                clip_speed=params.video_clip_speed,
+                # 老杨 8/8 21:09: 高潮段独立 MV - 截取音频区间
+                audio_clip_range=(
+                    (params.audio_clip_range_start, params.audio_clip_range_end)
+                    if params.audio_clip_range_start is not None
+                    and params.audio_clip_range_end is not None
+                    else None
+                ),
+            )
 
         _progress += 50 / params.video_count / 2
         sm.state.update_task(task_id, progress=_progress)
