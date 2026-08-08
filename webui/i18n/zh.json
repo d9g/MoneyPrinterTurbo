@@ -323,6 +323,17 @@
     "Audio Analysis LLM Run": "已生成新方案（{version} 版本）",
     "Audio Analysis Failed": "分析失败: {error}",
     "View Analysis Result": "📊 查看分析结果",
-    "Close": "关闭"
+    "Close": "关闭",
+    "MV Chorus Section Title": "🔥 高潮段检测（精选 1/2/3）",
+    "MV Chorus Section Description": "AI 根据响度/频谱亮度/节拍密度识别的高潮章节, 可选一个应用到搜索关键字",
+    "MV Chorus Selection Label": "精选",
+    "MV Chorus Type Main": "主高潮",
+    "MV Chorus Type Pre": "预高潮",
+    "MV Chorus Type Post": "后高潮",
+    "MV Chorus Confidence": "置信度",
+    "MV Chorus Match Keywords": "匹配搜索关键字",
+    "MV Chorus Match Style": "风格",
+    "MV Chorus No Matching Section": "该高潮段未匹配到意境方案中, 请重新生成",
+    "Apply Chorus Keywords Button": "🎵 应用该段关键词到搜索词"
   }
 }
