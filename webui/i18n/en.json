@@ -321,6 +321,8 @@
     "Audio Analysis No Audio": "No uploaded audio file detected",
     "Audio Analysis Cache Hit": "Found previous analysis ({count} runs, {source}), reusing",
     "Audio Analysis LLM Run": "Generated new plan (version {version})",
-    "Audio Analysis Failed": "Analysis failed: {error}"
+    "Audio Analysis Failed": "Analysis failed: {error}",
+    "View Analysis Result": "📊 View Analysis Result",
+    "Close": "Close"
   }
 }

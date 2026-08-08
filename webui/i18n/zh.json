@@ -321,6 +321,8 @@
     "Audio Analysis No Audio": "未检测到上传的音频文件",
     "Audio Analysis Cache Hit": "检测到历史分析（{count} 次，{source}），已复用",
     "Audio Analysis LLM Run": "已生成新方案（{version} 版本）",
-    "Audio Analysis Failed": "分析失败: {error}"
+    "Audio Analysis Failed": "分析失败: {error}",
+    "View Analysis Result": "📊 查看分析结果",
+    "Close": "关闭"
   }
 }

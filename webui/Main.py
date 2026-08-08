@@ -2967,6 +2967,7 @@ def _render_elevenlabs_api_key_input(label_key):
 _MV_CACHE_REANALYZE_LIMIT = 3     # 同 signature 重跑上限
 _MV_CACHE_TTL_DAYS = 180          # 超过 N 天才允许重新调 LLM (半年到 1 年阈值下限)
 _MV_AUDIO_SESSION_KEY = "mv_audio_analysis_result"  # session_state 里存结果的 key
+_MV_DIALOG_FLAG_KEY = "mv_audio_analysis_dialog_open"  # dialog 是否打开
 
 
 def _init_mv_runtime():
@@ -3270,42 +3271,24 @@ def _run_audio_mv_analysis(
     }
 
 
-def _render_audio_analysis_panel(uploaded_audio_file):
-    """老杨 8/8 拍板的 UI: 上传音频后点按钮 → expander 回显曲调特征 + 意境 + 一键应用
+@st.dialog(tr("Audio Analysis Panel"), width="large")
+def _render_audio_analysis_dialog():
+    """老杨 8/8 13:34 拍板的弹窗: 曲调特征 + 意境 + 关键词 + 配色 + 段落拍摄 + 3 个应用按钮
 
-    Args:
-        uploaded_audio_file: streamlit file_uploader 返回的对象
+    老杨 13:34 原话: "折叠栏位太窄, 改成弹窗 (st.dialog) 更宽屏看"
+    - width="large" 加大宽度
+    - 弹窗内可调用 callback (在弹窗本身之前执行, 不会触发 StreamlitAPIException)
+    - 弹窗内改 video_script / video_terms 的 session_state 在 dialog 关闭后生效
+      (rerun 之后 video_script widget 重新实例化时看到新值)
+
+    Trigger: _MV_DIALOG_FLAG_KEY = True → _render_audio_analysis_panel() 会调它
     """
-    if uploaded_audio_file is None:
-        st.caption(tr("Audio Analysis No Audio"))
-        return
-
-    # 按钮触发 - 用 callback 避免在 widget render 后改 session_state
-    # (上传本身是 file_uploader widget, 有 key 会触发 StreamlitAPIException)
-    # callback 可以调 spinner / set_state (streamlit 1.30+ 支持)
-    def _analyze_audio_callback(uploaded_file):
-        """widget 实例化前调用, 在这里调分析服务写 session_state 安全"""
-        with st.spinner(tr("Analyze Music Running")):
-            try:
-                result = _run_audio_mv_analysis(uploaded_file)
-                st.session_state[_MV_AUDIO_SESSION_KEY] = result
-            except Exception as exc:
-                logger.error(f"mv_audio_analysis failed: {exc}")
-                st.error(tr("Audio Analysis Failed").format(error=str(exc)))
-
-    st.button(
-        tr("Analyze Music Button"),
-        key="mv_analyze_music_button",
-        use_container_width=True,
-        type="secondary",
-        help="调用音频分析服务, 提取曲调特征 + AI 意境方案",
-        on_click=_analyze_audio_callback,
-        args=(uploaded_audio_file,),
-    )
-
-    # 从 session_state 取上次结果展示 (rerun 后不丢)
     result = st.session_state.get(_MV_AUDIO_SESSION_KEY)
     if not result:
+        st.warning(tr("Audio Analysis No Audio"))
+        if st.button(tr("Close"), key="mv_dialog_close_empty", use_container_width=True):
+            st.session_state[_MV_DIALOG_FLAG_KEY] = False
+            st.rerun()
         return
 
     plan = result["plan"]
@@ -3313,103 +3296,172 @@ def _render_audio_analysis_panel(uploaded_audio_file):
     source = result["source"]
     version = result["version"]
     cache_decision = result.get("cache_decision", "")
+    mood_summary = plan.get("mood_summary", "")
+    keywords_en = plan.get("theme_keywords_en", [])
 
-    with st.expander(tr("Audio Analysis Panel"), expanded=False):
-        # 来源 + 版本
-        source_label = {
-            "llm": tr("MV Plan Source LLM"),
-            "cache_fallback": tr("MV Plan Source Cache"),
-            "cache_reuse": tr("MV Plan Source Cache"),
-            "fallback_rule": tr("MV Plan Source Fallback"),
-        }.get(source, source)
-        meta_cols = st.columns([2, 1])
-        with meta_cols[0]:
-            st.caption(f"{tr('MV Plan Source')}: **{source_label}**")
-            if cache_decision and source in ("cache_reuse", "llm"):
-                st.caption(f"💡 {cache_decision}")
-        with meta_cols[1]:
-            st.caption(f"{tr('MV Plan Version')}: v{version}")
-            if result.get("latency_ms"):
-                st.caption(f"⏱️ {result['latency_ms']} ms")
+    # 顶部 meta 行
+    source_label = {
+        "llm": tr("MV Plan Source LLM"),
+        "cache_fallback": tr("MV Plan Source Cache"),
+        "cache_reuse": tr("MV Plan Source Cache"),
+        "fallback_rule": tr("MV Plan Source Fallback"),
+    }.get(source, source)
+    meta_cols = st.columns([3, 1])
+    with meta_cols[0]:
+        st.markdown(f"**{tr('MV Plan Source')}: {source_label}**")
+        if cache_decision and source in ("cache_reuse", "llm"):
+            st.caption(f"💡 {cache_decision}")
+    with meta_cols[1]:
+        latency_suffix = f" · {result['latency_ms']} ms" if result.get("latency_ms") else ""
+        st.caption(f"v{version}{latency_suffix}")
 
-        st.markdown("---")
+    st.divider()
+
+    # 双栏布局: 左边曲调特征, 右边意境
+    body_cols = st.columns(2, gap="medium")
+    with body_cols[0]:
         st.markdown(_format_audio_features_for_humans(features))
-        st.markdown("---")
+    with body_cols[1]:
         st.markdown(_format_mv_plan_for_humans(plan))
 
-        # 一键应用按钮 - 用 callback 避免 StreamlitAPIException
-        # (不能 widget 实例化后修改其 session_state key)
-        st.markdown("---")
-        apply_cols = st.columns(3)
-        mood_summary = plan.get("mood_summary", "")
-        keywords_en = plan.get("theme_keywords_en", [])
+    st.divider()
 
-        def _apply_mood_callback(ms: str, ver: int):
-            """Callback: widget 实例化前调用, 不会触发 StreamlitAPIException"""
+    # 应用按钮 + 关闭按钮
+    def _apply_mood_callback(ms: str, ver: int):
+        existing = st.session_state.get("video_script", "") or ""
+        separator = "\n\n" if existing.strip() else ""
+        st.session_state["video_script"] = (
+            existing.rstrip() + separator + ms
+        ).strip()
+        st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        st.toast(tr("Audio Analysis LLM Run").format(version=ver), icon="✅")
+        st.rerun()
+
+    def _apply_keywords_callback(kws: list):
+        existing = st.session_state.get("video_terms", "") or ""
+        new_terms = ", ".join(kws)
+        if existing.strip():
+            st.session_state["video_terms"] = (
+                existing.rstrip().rstrip(",") + ", " + new_terms
+            )
+        else:
+            st.session_state["video_terms"] = new_terms
+        st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        st.toast(f"Applied {len(kws)} English keywords", icon="✅")
+        st.rerun()
+
+    def _apply_both_callback(ms: str, kws: list):
+        if ms:
             existing = st.session_state.get("video_script", "") or ""
             separator = "\n\n" if existing.strip() else ""
             st.session_state["video_script"] = (
                 existing.rstrip() + separator + ms
             ).strip()
-            st.toast(tr("Audio Analysis LLM Run").format(version=ver), icon="✅")
-
-        def _apply_keywords_callback(kws: list):
-            existing = st.session_state.get("video_terms", "") or ""
+        if kws:
+            existing_terms = st.session_state.get("video_terms", "") or ""
             new_terms = ", ".join(kws)
-            if existing.strip():
+            if existing_terms.strip():
                 st.session_state["video_terms"] = (
-                    existing.rstrip().rstrip(",") + ", " + new_terms
+                    existing_terms.rstrip().rstrip(",") + ", " + new_terms
                 )
             else:
                 st.session_state["video_terms"] = new_terms
-            st.toast(f"Applied {len(kws)} English keywords", icon="✅")
+        st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        st.toast("✅ Applied to both fields", icon="✨")
+        st.rerun()
 
-        def _apply_both_callback(ms: str, kws: list):
-            if ms:
-                existing = st.session_state.get("video_script", "") or ""
-                separator = "\n\n" if existing.strip() else ""
-                st.session_state["video_script"] = (
-                    existing.rstrip() + separator + ms
-                ).strip()
-            if kws:
-                existing_terms = st.session_state.get("video_terms", "") or ""
-                new_terms = ", ".join(kws)
-                if existing_terms.strip():
-                    st.session_state["video_terms"] = (
-                        existing_terms.rstrip().rstrip(",") + ", " + new_terms
-                    )
-                else:
-                    st.session_state["video_terms"] = new_terms
-            st.toast("✅ Applied to both fields", icon="✨")
+    def _close_dialog():
+        st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        st.rerun()
 
-        with apply_cols[0]:
-            st.button(
-                tr("Apply Mood To Script Button"),
-                key="mv_apply_mood_to_script",
-                use_container_width=True,
-                disabled=not mood_summary,
-                on_click=_apply_mood_callback,
-                args=(mood_summary, version),
-            )
-        with apply_cols[1]:
-            st.button(
-                tr("Apply English Keywords Button"),
-                key="mv_apply_keywords_en",
-                use_container_width=True,
-                disabled=not keywords_en,
-                on_click=_apply_keywords_callback,
-                args=(keywords_en,),
-            )
-        with apply_cols[2]:
-            st.button(
-                tr("Apply Both Button"),
-                key="mv_apply_both",
-                use_container_width=True,
-                type="primary",
-                disabled=not (mood_summary or keywords_en),
-                on_click=_apply_both_callback,
-                args=(mood_summary, keywords_en),
-            )
+    apply_cols = st.columns(4)
+    with apply_cols[0]:
+        st.button(
+            tr("Apply Mood To Script Button"),
+            key="mv_dlg_apply_mood",
+            use_container_width=True,
+            disabled=not mood_summary,
+            on_click=_apply_mood_callback,
+            args=(mood_summary, version),
+        )
+    with apply_cols[1]:
+        st.button(
+            tr("Apply English Keywords Button"),
+            key="mv_dlg_apply_kws",
+            use_container_width=True,
+            disabled=not keywords_en,
+            on_click=_apply_keywords_callback,
+            args=(keywords_en,),
+        )
+    with apply_cols[2]:
+        st.button(
+            tr("Apply Both Button"),
+            key="mv_dlg_apply_both",
+            use_container_width=True,
+            type="primary",
+            disabled=not (mood_summary or keywords_en),
+            on_click=_apply_both_callback,
+            args=(mood_summary, keywords_en),
+        )
+    with apply_cols[3]:
+        st.button(
+            tr("Close"),
+            key="mv_dlg_close",
+            use_container_width=True,
+            on_click=_close_dialog,
+        )
+
+
+def _render_audio_analysis_panel(uploaded_audio_file):
+    """老杨 8/8 拍板的 UI: 上传音频后点按钮 → 弹窗里看分析结果 + 一键应用
+
+    老杨 8/8 13:34 拍板: 改用 st.dialog 弹窗代替 expander, 宽屏看分析结果
+    """
+    if uploaded_audio_file is None:
+        st.caption(tr("Audio Analysis No Audio"))
+        return
+
+    # 两个按钮横排: 分析 (主) + 查看结果 (有结果才启用)
+    has_result = _MV_AUDIO_SESSION_KEY in st.session_state
+
+    def _analyze_audio_callback(uploaded_file):
+        """widget 实例化前调用, 在这里调分析服务写 session_state 安全"""
+        with st.spinner(tr("Analyze Music Running")):
+            try:
+                result = _run_audio_mv_analysis(uploaded_file)
+                st.session_state[_MV_AUDIO_SESSION_KEY] = result
+                st.session_state[_MV_DIALOG_FLAG_KEY] = True  # 分析完自动弹
+            except Exception as exc:
+                logger.error(f"mv_audio_analysis failed: {exc}")
+                st.error(tr("Audio Analysis Failed").format(error=str(exc)))
+
+    def _open_dialog_callback():
+        st.session_state[_MV_DIALOG_FLAG_KEY] = True
+
+    btn_cols = st.columns([1, 1], gap="small")
+    with btn_cols[0]:
+        st.button(
+            tr("Analyze Music Button"),
+            key="mv_analyze_music_button",
+            use_container_width=True,
+            type="primary",
+            help="调用音频分析服务, 提取曲调特征 + AI 意境方案",
+            on_click=_analyze_audio_callback,
+            args=(uploaded_audio_file,),
+        )
+    with btn_cols[1]:
+        st.button(
+            tr("View Analysis Result"),
+            key="mv_view_analysis_button",
+            use_container_width=True,
+            type="secondary",
+            disabled=not has_result,
+            on_click=_open_dialog_callback,
+        )
+
+    # 如果 flag 为 True, 弹 dialog (点分析 / 点查看都会跳)
+    if st.session_state.get(_MV_DIALOG_FLAG_KEY):
+        _render_audio_analysis_dialog()
 
 
 def _render_background_music_settings(params, elevenlabs_api_key_rendered=False):
