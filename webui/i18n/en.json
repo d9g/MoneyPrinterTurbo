@@ -323,6 +323,17 @@
     "Audio Analysis LLM Run": "Generated new plan (version {version})",
     "Audio Analysis Failed": "Analysis failed: {error}",
     "View Analysis Result": "📊 View Analysis Result",
-    "Close": "Close"
+    "Close": "Close",
+    "MV Chorus Section Title": "🔥 Chorus Detection (Top 1/2/3)",
+    "MV Chorus Section Description": "AI-detected chorus sections by loudness/spectral brightness/onset density. Pick one to apply to search keywords.",
+    "MV Chorus Selection Label": "Top",
+    "MV Chorus Type Main": "Main Chorus",
+    "MV Chorus Type Pre": "Pre-Chorus",
+    "MV Chorus Type Post": "Post-Chorus",
+    "MV Chorus Confidence": "Confidence",
+    "MV Chorus Match Keywords": "Matching Search Keywords",
+    "MV Chorus Match Style": "Style",
+    "MV Chorus No Matching Section": "This chorus section has no matching intent prompt, please regenerate",
+    "Apply Chorus Keywords Button": "🎵 Apply This Section's Keywords"
   }
 }

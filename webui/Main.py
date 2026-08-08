@@ -3424,6 +3424,95 @@ def _render_audio_analysis_dialog():
             on_click=_close_dialog,
         )
 
+    st.divider()
+
+    # === 高潮段检测 (Diana 8/8 老杨拍板 精选 1/2/3) ===
+    # 老杨原话: "你可以列出程序识别的精选1, 精选2, 精选3. 然后可以选择对应的一个高潮章节,
+    #         回显到界面上匹配高潮对应的搜索关键字"
+    chorus_segments = features.get("chorus_segments", []) if isinstance(features, dict) else []
+    if chorus_segments:
+        st.markdown(f"### {tr('MV Chorus Section Title')}")
+        st.caption(tr("MV Chorus Section Description"))
+
+        # 高潮段选项 radio (精选 1/2/3)
+        chorus_options = []
+        chorus_labels = []
+        for cs in chorus_segments:
+            idx = cs.get("index", 0) + 1
+            start = cs.get("start", 0)
+            end = cs.get("end", 0)
+            duration = cs.get("duration", 0)
+            chorus_type = cs.get("chorus_type", "main_chorus")
+            confidence = cs.get("confidence", 0)
+            type_label = {
+                "main_chorus": tr("MV Chorus Type Main"),
+                "pre_chorus": tr("MV Chorus Type Pre"),
+                "post_chorus": tr("MV Chorus Type Post"),
+            }.get(chorus_type, chorus_type)
+            label = f"{tr('MV Chorus Selection Label')} {idx} · {type_label} · {start:.1f}s-{end:.1f}s ({duration:.0f}s) · {tr('MV Chorus Confidence')} {confidence:.2f}"
+            chorus_options.append(idx - 1)
+            chorus_labels.append(label)
+
+        # 选中的高潮段 (Diana 8/8)
+        chorus_select_key = "mv_dlg_chorus_selected"
+        if chorus_select_key not in st.session_state:
+            st.session_state[chorus_select_key] = 0  # 默认选第一个
+
+        selected_idx = st.radio(
+            tr("MV Chorus Section Title"),
+            options=chorus_options,
+            format_func=lambda i: chorus_labels[i] if 0 <= i < len(chorus_labels) else "",
+            index=st.session_state[chorus_select_key],
+            key=chorus_select_key,
+            horizontal=True,
+        )
+
+        # 回显高潮对应的搜索关键字 (Diana 8/8)
+        # 从 video_prompts 里找匹配 section_index == selected_idx 的 prompt
+        video_prompts = plan.get("video_prompts", [])
+        matching_prompts = []
+        for vp in video_prompts:
+            if vp.get("section_index") == selected_idx:
+                matching_prompts.append(vp)
+                break
+        if matching_prompts:
+            vp = matching_prompts[0]
+            chorus_prompt_en = vp.get("prompt", "")
+            chorus_style_cn = vp.get("style", "")
+            chorus_label_text = vp.get("label", "")
+            st.markdown(f"**{tr('MV Chorus Match Keywords')}:** `{chorus_prompt_en}`")
+            if chorus_style_cn:
+                st.caption(f"{tr('MV Chorus Match Style')}: {chorus_style_cn}")
+
+            # Apply 按钮 - 把该段关键词加入 video_terms
+            def _apply_chorus_keywords_callback(prompt: str, idx: int, ver: int):
+                pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
+                existing_terms = pending.get("video_terms_append", "")
+                new_terms = prompt.strip()
+                if existing_terms.strip():
+                    pending["video_terms_append"] = (
+                        existing_terms.rstrip().rstrip(",") + ", " + new_terms
+                    )
+                else:
+                    pending["video_terms_append"] = new_terms
+                pending["keyword_count"] = pending.get("keyword_count", 0) + 1
+                pending["chorus_index"] = idx
+                pending["source_version"] = pending.get("source_version", ver)
+                st.session_state[_MV_PENDING_APPLY_KEY] = pending
+                st.session_state[_MV_DIALOG_FLAG_KEY] = False
+
+            st.button(
+                tr("Apply Chorus Keywords Button"),
+                key="mv_dlg_apply_chorus_kws",
+                use_container_width=True,
+                type="secondary",
+                disabled=not chorus_prompt_en,
+                on_click=_apply_chorus_keywords_callback,
+                args=(chorus_prompt_en, selected_idx, version),
+            )
+        else:
+            st.caption(tr("MV Chorus No Matching Section"))
+
 
 def _render_audio_analysis_panel(uploaded_audio_file):
     """老杨 8/8 拍板的 UI: 上传音频后点按钮 → 弹窗里看分析结果 + 一键应用
