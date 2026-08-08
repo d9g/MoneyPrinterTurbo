@@ -74,30 +74,61 @@ def _read_text_with_encoding(path: Path) -> str:
 _LRC_LINE_RE = re.compile(r"\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
 
 
-def parse_lrc(content: str) -> list:
-    """解析 .lrc 歌词文件内容.
+_LRC_TAG_RE = re.compile(r"\[(ar|ti|al|by|offset|re|ve):[^\]]*\]", re.IGNORECASE)
+_ENHANCED_LRC_TAG_RE = re.compile(r"<\d+:\d+\.\d+>")
+_OFFSET_RE = re.compile(r"\[offset:\s*([+-]?\d+)\s*\]", re.IGNORECASE)
 
-    支持多时间标签 (一行多个时间戳, 复制一行到多个位置).
-    返回按时间排序的 [{timestamp_ms, text}].
+
+def parse_lrc(content: str) -> list:
+    """解析 .lrc 歌词文件内容 (审计 P2-8 增强版).
+
+    支持:
+      - 多时间标签 (一行多个时间戳, 复制一行到多个位置)
+      - 全局偏移量 [offset:N] (毫秒)
+      - 增强 LRC <00:00.00> 逐字时间戳标记 (去掉)
+      - 元数据标签过滤 (ar/ti/al/by/offset/re/ve)
+
+    返回按时间排序的 [{timestamp_ms, text, end_timestamp_ms}]。
     """
+    # 抽取全局偏移量 (扫描全文, 取最后一个 offset)
+    global_offset_ms = 0
+    for m in _OFFSET_RE.finditer(content):
+        global_offset_ms = int(m.group(1))
+
     lines = []
     for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # 跳过纯元数据行 (例如 [ar:歌手], [ti:歌名])
+        if _LRC_TAG_RE.match(line):
+            continue
+
         # 提取所有时间戳
-        matches = list(_LRC_LINE_RE.finditer(raw_line))
+        matches = list(_LRC_LINE_RE.finditer(line))
         if not matches:
             continue
         # 时间戳后的文本 (取最后一个匹配之后的)
         last_match = matches[-1]
-        text = raw_line[last_match.end():].strip()
-        # 跳过元数据标签 (例 [ar:歌手], [ti:歌名], [al:专辑], [length:总时长])
-        if text and not text.startswith("[") and ":" not in text.split("]")[0]:
-            for m in matches:
-                minutes = int(m.group(1))
-                seconds = int(m.group(2))
-                fraction_str = m.group(3) or "0"
-                fraction_ms = int(fraction_str.ljust(3, "0")[:3])
-                timestamp_ms = minutes * 60_000 + seconds * 1000 + fraction_ms
-                lines.append({"timestamp_ms": timestamp_ms, "text": text})
+        text = line[last_match.end():].strip()
+        if not text:
+            continue
+
+        # 去除增强 LRC 逐字时间戳标记 <00:00.00>
+        text = _ENHANCED_LRC_TAG_RE.sub("", text).strip()
+        if not text:
+            continue
+
+        for m in matches:
+            minutes = int(m.group(1))
+            seconds = int(m.group(2))
+            fraction_str = m.group(3) or "0"
+            fraction_ms = int(fraction_str.ljust(3, "0")[:3])
+            timestamp_ms = (
+                minutes * 60_000 + seconds * 1000 + fraction_ms + global_offset_ms
+            )
+            lines.append({"timestamp_ms": timestamp_ms, "text": text})
 
     # 排序 + 计算 end_timestamp_ms
     lines.sort(key=lambda x: x["timestamp_ms"])
