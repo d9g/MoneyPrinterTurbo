@@ -223,6 +223,42 @@ class IntentRepository:
                 logger.info(f"intent_repo: deleted {deleted} records by signature {song_signature[:20]}")
             return deleted
 
+    def delete_all(self) -> int:
+        """老杨 8/8 17:40: 清空所有 MV 缓存 (Settings 页面 '清所有' 按钮调用)
+
+        返回删除的条数.
+        """
+        with self.db.transaction() as conn:
+            cursor = conn.execute("DELETE FROM mv_intent_history")
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"intent_repo: delete_all - {deleted} records")
+            return deleted
+
+    def get_stats(self) -> dict:
+        """老杨 8/8 17:40: MV 缓存统计 (Settings 页面展示)
+
+        Returns:
+            dict: {"total": int, "unique_signatures": int, "latest_run_at": str}
+        """
+        total_row = self.db.fetch_one(
+            "SELECT COUNT(*) AS cnt FROM mv_intent_history"
+        )
+        total = total_row["cnt"] if total_row else 0
+        sig_row = self.db.fetch_one(
+            "SELECT COUNT(DISTINCT song_signature) AS cnt FROM mv_intent_history"
+        )
+        unique_signatures = sig_row["cnt"] if sig_row else 0
+        latest_row = self.db.fetch_one(
+            "SELECT MAX(created_at) AS ts FROM mv_intent_history"
+        )
+        latest_run_at = latest_row["ts"] if latest_row else None
+        return {
+            "total": total,
+            "unique_signatures": unique_signatures,
+            "latest_run_at": latest_run_at,
+        }
+
     def cleanup_old_versions(self, audio_id: str, keep: int = 10) -> int:
         """Diana 4.4: 保留最近 N 个版本, 删除旧的"""
         with self.db.transaction() as conn:
