@@ -297,15 +297,18 @@ class IntentRepository:
         """获取/创建 per-signature 锁 (Diana 4.5)
 
         两用户同时上传同一首歌时, 避免重复调 LLM
+
+        审计 P1-2 修复: 用模块级全局 dict + 全局 Lock 保护字典创建,
+        替代原 threading.local() 方案 (threading.local 是 per-thread 隔离, 锁完全无效)。
         """
-        if not hasattr(_intent_locks, "locks"):
-            _intent_locks.locks = {}
-        if signature not in _intent_locks.locks:
-            _intent_locks.locks[signature] = threading.Lock()
-        return _intent_locks.locks[signature]
+        with _intent_locks_guard:
+            if signature not in _intent_locks:
+                _intent_locks[signature] = threading.Lock()
+        return _intent_locks[signature]
 
 
-_intent_locks = threading.local()  # 进程内 per-thread 的锁字典
+_intent_locks: Dict[str, threading.Lock] = {}  # 进程内全局锁字典 (审计 P1-2 修复)
+_intent_locks_guard = threading.Lock()  # 保护字典创建的元锁
 
 
 def get_intent_repository(db_path: Optional[str] = None) -> IntentRepository:

@@ -3096,12 +3096,17 @@ def _init_mv_runtime():
     return db_path, repo
 
 
-def _compute_song_signature_for_upload(audio_path: str, features: dict, id3_meta) -> tuple[str, dict]:
-    """跟 mv.py 路由里一致的三层签名计算 (ID3 > metadata > audio fingerprint)"""
+def _compute_song_signature_for_upload(audio_path: str, features: dict, id3_meta, y=None, sr=None) -> tuple[str, dict]:
+    """跟 mv.py 路由里一致的三层签名计算 (ID3 > metadata > audio fingerprint)
+
+    审计 P0-3: 如果上游调用方 (analyze_audio_with_audio) 已加载 y, sr, 复用它们,
+    避免重复 preprocess_audio (librosa.load 耗时 2-5 秒)。
+    """
     from app.services.audio import compute_song_signature
     from app.services.audio.preprocess import preprocess_audio
 
-    y, sr = preprocess_audio(audio_path)
+    if y is None or sr is None:
+        y, sr = preprocess_audio(audio_path)
     signature_str, signature_meta = compute_song_signature(
         audio_path=audio_path,
         y=y,
@@ -3146,20 +3151,26 @@ def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dic
         return True, latest, f"within_limit (v{version_count}/{_MV_CACHE_REANALYZE_LIMIT})"
 
     # version_count >= 3, 看时间间隔
+    last_update = None
+    parse_failed = False
     try:
         last_update = datetime.fromisoformat(latest.created_at.replace("Z", "+00:00")) if isinstance(latest.created_at, str) else latest.created_at
         if last_update is None:
-            return False, latest, "cache_fresh"
-        # 转 naive UTC 跟 now() 比较
-        if last_update.tzinfo:
+            parse_failed = True
+        elif last_update.tzinfo:
             from datetime import timezone
             last_update_naive = last_update.astimezone(timezone.utc).replace(tzinfo=None)
         else:
             last_update_naive = last_update
-        if datetime.utcnow() - last_update_naive > timedelta(days=_MV_CACHE_TTL_DAYS):
-            return True, latest, f"cache_expired (>{_MV_CACHE_TTL_DAYS} days)"
     except Exception:
-        pass
+        # 审计 P2-7: 解析失败应允许重跑, 而非永远复用缓存
+        parse_failed = True
+
+    if parse_failed or last_update is None:
+        return True, latest, "parse_failed (allow rerun)"
+
+    if datetime.utcnow() - last_update_naive > timedelta(days=_MV_CACHE_TTL_DAYS):
+        return True, latest, f"cache_expired (>{_MV_CACHE_TTL_DAYS} days)"
 
     return False, latest, "cache_fresh"
 
@@ -3342,17 +3353,21 @@ def _run_audio_mv_analysis(
     with abs_path.open("wb") as f:
         f.write(uploaded_audio_file.getbuffer())
 
-    # 2. 音频分析
+    # 2. 音频分析 — 审计 P0-3: 复用 y, sr, 不重复 preprocess_audio
     try:
-        features_obj = analyze_audio(str(abs_path))
+        from app.services.audio.analyzer import analyze_audio_with_audio
+        from app.services.audio.preprocess import preprocess_audio
+        features_obj, y, sr = analyze_audio_with_audio(str(abs_path))
+        if y is None or sr is None:
+            y, sr = preprocess_audio(str(abs_path))
     except AudioAnalyzerError as exc:
         raise RuntimeError(f"audio analyze failed: {exc}") from exc
     features = features_obj.to_dict()
     id3_meta = features_obj.id3_metadata
 
-    # 3. song_signature
+    # 3. song_signature (复用上面已加载的 y, sr)
     signature_str, signature_meta = _compute_song_signature_for_upload(
-        str(abs_path), features, id3_meta
+        str(abs_path), features, id3_meta, y=y, sr=sr
     )
 
     # 4. Q5 缓存策略

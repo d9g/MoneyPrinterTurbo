@@ -4,7 +4,7 @@ Diana 审计 4.2 加缓存层
 """
 import hashlib
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 from loguru import logger
 
@@ -119,6 +119,79 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
     )
 
     return features
+
+
+def analyze_audio_with_audio(path: str, use_cache: bool = True) -> Tuple[AudioFeatures, "object", int]:
+    """analyze_audio + 复用 y, sr, 避免重复调用 preprocess_audio (审计 P0-3)
+
+    返回 (features, y, sr):
+      - features: AudioFeatures
+      - y, sr: librosa 加载后的音频数据 + 采样率
+
+    缓存层沿用 _analysis_cache (Diana 4.2)。
+    缓存命中分支直接复用 features, 不重新加载 y, sr (调用方需要再处理)。
+    """
+    _validate_path(path)
+
+    # Diana 4.2: 缓存命中
+    cache_key = _file_hash(path) if use_cache else None
+    if cache_key and cache_key in _analysis_cache:
+        logger.info(f"audio_analyzer: cache hit for {path}")
+        # 缓存命中: features 复用, 不再算 y, sr (调用方按需 preprocess)
+        y, sr = None, None  # type: ignore
+        return _analysis_cache[cache_key], y, sr
+
+    # 1. 预处理 (Diana 4.3)
+    y, sr = preprocess_audio(path)
+
+    # 1.5 ID3 tag
+    from .id3_utils import read_id3_tags
+    id3_metadata = read_id3_tags(path)
+
+    # 2. 计算各特征
+    tempo_info = get_tempo(y, sr)
+    key_info = get_key(y, sr)
+    pitch_info = get_pitch_range(y, sr)
+    dynamic_info = get_dynamic(y, sr)
+    spectral_info = get_spectral(y, sr)
+    sections = detect_sections(y, sr)
+    chorus_segments = detect_chorus_segments(y, sr, top_k=6)
+
+    # 3. 风格识别
+    style_info = detect_style(
+        y, sr,
+        tempo_bpm=tempo_info.bpm,
+        key=key_info.key,
+        dynamic_range_db=dynamic_info.dynamic_range_db,
+    )
+
+    duration = len(y) / sr
+
+    features = AudioFeatures(
+        duration_seconds=round(duration, 1),
+        tempo=tempo_info,
+        key_info=key_info,
+        pitch_range=pitch_info,
+        dynamic=dynamic_info,
+        spectral=spectral_info,
+        sections=sections,
+        chorus_segments=chorus_segments,
+        style=style_info,
+        id3_metadata=id3_metadata,
+    )
+
+    if cache_key:
+        _analysis_cache[cache_key] = features
+
+    logger.info(
+        f"audio_analyzer: {Path(path).name} "
+        f"BPM={features.tempo.bpm}({features.tempo.tempo_class}) "
+        f"key={features.key_info.key} "
+        f"duration={features.duration_seconds}s "
+        f"sections={len(features.sections)}"
+    )
+
+    return features, y, sr
 
 
 def clear_cache() -> int:

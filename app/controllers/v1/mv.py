@@ -159,17 +159,19 @@ async def mv_analyze(
             logger.warning(f"歌词文件解析失败: {exc}")
             lyrics_meta = {"source": f"file:{lyrics_file_id}", "parse_error": str(exc)}
 
-    # 3. 音频分析 (Diana 2.2 三层识别)
+    # 3. 音频分析 (Diana 2.2 三层识别) — 审计 P0-3: 复用 y, sr, 不重复 preprocess_audio
     logger.info(f"mv_analyze: 开始音频分析 {audio_path}")
     try:
-        features_obj = analyze_audio(str(audio_path))
+        from app.services.audio.analyzer import analyze_audio_with_audio
+        from app.services.audio.preprocess import preprocess_audio
+        features_obj, y, sr = analyze_audio_with_audio(str(audio_path))
+        if y is None or sr is None:
+            # 缓存命中: features_obj 已存在, y, sr 需要重新加载 (compute_song_signature 需要)
+            y, sr = preprocess_audio(str(audio_path))
         features = features_obj.to_dict()
         id3_meta = features_obj.id3_metadata
 
         # Diana 2.2: song_signature (三层识别)
-        import numpy as np
-        from app.services.audio.preprocess import preprocess_audio
-        y, sr = preprocess_audio(str(audio_path))
         signature_str, signature_meta = compute_song_signature(
             audio_path=str(audio_path),
             y=y,
