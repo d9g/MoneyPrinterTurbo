@@ -4207,6 +4207,55 @@ def _render_subtitle_settings(panel, params):
                 key="subtitle_enabled_checkbox",
             )
             subtitle_settings_disabled = not params.subtitle_enabled
+
+            # === LRC 歌词精准对齐 (Diana 8/8 老杨拍板) ===
+            # 勾选后上传 LRC 文件, 字幕按歌词时间戳精准对齐 (不用 TTS/Whisper 推断)
+            st.session_state.setdefault(
+                "subtitle_use_lrc_checkbox", False
+            )
+            use_lrc = st.checkbox(
+                tr("Use LRC Subtitles"),
+                key="subtitle_use_lrc_checkbox",
+                disabled=subtitle_settings_disabled,
+                help=tr("Use LRC Subtitles Help"),
+            )
+            lrc_upload_key = "subtitle_lrc_uploader"
+            if use_lrc:
+                uploaded_lrc = st.file_uploader(
+                    tr("Upload LRC File"),
+                    type=["lrc"],
+                    key=lrc_upload_key,
+                    disabled=subtitle_settings_disabled,
+                    help=tr("Upload LRC File Help"),
+                )
+                if uploaded_lrc is not None:
+                    # 保存上传的 LRC 到 workspace 目录
+                    lrc_save_dir = utils.root_dir() / "storage" / "lrc"
+                    lrc_save_dir.mkdir(parents=True, exist_ok=True)
+                    # 用文件内容 hash + 原文件名作为保存名
+                    import hashlib
+                    file_hash = hashlib.md5(uploaded_lrc.getvalue()).hexdigest()[:12]
+                    safe_name = re.sub(r"[^\w\-_\.]", "_", uploaded_lrc.name)
+                    saved_lrc_path = lrc_save_dir / f"{file_hash}_{safe_name}"
+                    with open(saved_lrc_path, "wb") as f:
+                        f.write(uploaded_lrc.getbuffer())
+                    st.session_state["subtitle_lrc_path"] = str(saved_lrc_path)
+                    st.success(tr("LRC Upload Success").format(name=uploaded_lrc.name))
+                    logger.info(f"LRC uploaded: {saved_lrc_path}")
+                # 显示已上传的 LRC 路径
+                existing_lrc = st.session_state.get("subtitle_lrc_path", "")
+                if existing_lrc and Path(existing_lrc).is_file():
+                    lrc_size = Path(existing_lrc).stat().st_size
+                    st.caption(
+                        tr("LRC Current File").format(
+                            path=Path(existing_lrc).name, size=lrc_size
+                        )
+                    )
+                    params.lrc_file = existing_lrc
+                else:
+                    params.lrc_file = None
+            else:
+                params.lrc_file = None
             font_names = get_all_fonts()
             saved_font_name = config.ui.get(
                 "font_name", DEFAULT_SUBTITLE_SETTINGS["font_name"]

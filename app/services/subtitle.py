@@ -294,6 +294,178 @@ def correct(subtitle_file, video_script):
         logger.success("Subtitle is correct")
 
 
+# ================ LRC 解析 (Diana 8/8 老杨拍板) ================
+# LRC 格式:
+#   [00:01.23]歌词文本
+#   [00:05.67]歌词文本
+#   [ar:歌手]
+#   [ti:标题]
+#   [al:专辑]
+#   [offset:0]  (可选: 全局偏移毫秒数)
+#
+# 支持多时间戳 (同一句多个时间点, 例如合唱): [00:01.23][00:10.45]歌词
+# 支持扩展 LRC (含字): [00:01.23]<00:01.45>字<00:01.67>字<00:01.89>字
+# 增强 LRC 仅取时间戳 + 整句文本, 忽略逐字时间
+
+_LRC_LINE_RE = re.compile(r"\[([0-9:.]+)\]")
+_LRC_TAG_RE = re.compile(r"\[(ar|ti|al|by|offset|re|ve):[^\]]*\]", re.IGNORECASE)
+
+
+def parse_lrc(lrc_text: str) -> list:
+    """解析 LRC 文本为 [(time_seconds, text), ...] 列表
+
+    Args:
+        lrc_text: LRC 文件内容 (UTF-8)
+
+    Returns:
+        按时间排序的 [(time_sec, text)] 列表
+    """
+    entries = []
+    global_offset_ms = 0
+    for raw_line in lrc_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # 提取全局偏移量 [offset:N]
+        offset_match = re.search(r"\[offset:(-?\d+)\]", line, re.IGNORECASE)
+        if offset_match:
+            global_offset_ms = int(offset_match.group(1))
+            # 移除 offset 标签后继续处理其余部分
+            line = re.sub(r"\[offset:-?\d+\]", "", line, flags=re.IGNORECASE).strip()
+            if not line:
+                continue
+
+        # 跳过元数据标签 (ar/ti/al/by/re/ve)
+        if _LRC_TAG_RE.match(line):
+            continue
+
+        # 提取所有时间戳
+        timestamps = _LRC_LINE_RE.findall(line)
+        if not timestamps:
+            continue
+
+        # 提取文本部分 (最后一个 ] 之后)
+        text_match = re.split(r"\]\s*", line, maxsplit=len(timestamps))
+        text = text_match[-1].strip() if text_match else ""
+        if not text:
+            continue
+
+        # 增强 LRC: 去除 <00:00.00> 逐字时间戳标记
+        text = re.sub(r"<\d+:\d+\.\d+>", "", text).strip()
+        if not text:
+            continue
+
+        # 处理每个时间戳 (多时间戳 -> 多条目)
+        for ts in timestamps:
+            t_sec = _lrc_timestamp_to_seconds(ts)
+            if t_sec is None:
+                continue
+            t_sec += global_offset_ms / 1000.0
+            entries.append((t_sec, text))
+
+    # 按时间排序
+    entries.sort(key=lambda x: x[0])
+    return entries
+
+
+def _lrc_timestamp_to_seconds(ts: str) -> float | None:
+    """转换 LRC 时间戳为秒
+
+    支持格式:
+      [mm:ss.xx]   例如 [01:23.45]
+      [mm:ss]      例如 [01:23]
+      [mm:ss.xxx]  例如 [01:23.456]
+      [h:mm:ss.xx] 例如 [1:23:45.67] (极少数)
+    """
+    ts = ts.strip()
+    parts = ts.split(":")
+    if len(parts) == 2:
+        # mm:ss.xx
+        try:
+            m, s = parts
+            return int(m) * 60 + float(s)
+        except ValueError:
+            return None
+    elif len(parts) == 3:
+        # h:mm:ss.xx
+        try:
+            h, m, s = parts
+            return int(h) * 3600 + int(m) * 60 + float(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _seconds_to_srt_time(t: float) -> str:
+    """转换秒为 SRT 时间戳 HH:MM:SS,mmm"""
+    if t < 0:
+        t = 0
+    hours = int(t // 3600)
+    minutes = int((t % 3600) // 60)
+    seconds = int(t % 60)
+    millis = int(round((t - int(t)) * 1000))
+    # 处理 999ms 进位
+    if millis >= 1000:
+        millis = 999
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"
+
+
+def lrc_to_srt(lrc_text: str, output_path: str, default_duration_sec: float = 3.0) -> int:
+    """把 LRC 文本转换为 SRT 文件
+
+    每条字幕结束时间 = 下一条起始时间 (如果没有下一条, 用 default_duration_sec)
+
+    Args:
+        lrc_text: LRC 文件内容 (UTF-8)
+        output_path: 输出的 .srt 路径
+        default_duration_sec: 最后一条字幕的默认时长
+
+    Returns:
+        写入的字幕条数
+    """
+    entries = parse_lrc(lrc_text)
+    if not entries:
+        logger.warning(f"lrc_to_srt: no valid LRC entries found")
+        return 0
+
+    lines = []
+    for i, (start_t, text) in enumerate(entries):
+        # 结束时间 = 下一条起始 (减去 0.05s 重叠避免同时出现)
+        if i + 1 < len(entries):
+            end_t = entries[i + 1][0] - 0.05
+            if end_t <= start_t:
+                end_t = start_t + default_duration_sec
+        else:
+            end_t = start_t + default_duration_sec
+
+        srt_start = _seconds_to_srt_time(start_t)
+        srt_end = _seconds_to_srt_time(end_t)
+        lines.append(f"{i + 1}\n{srt_start} --> {srt_end}\n{text}\n")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    logger.info(f"lrc_to_srt: wrote {len(entries)} subtitles to {output_path}")
+    return len(entries)
+
+
+def lrc_file_to_srt(lrc_path: str, output_path: str, default_duration_sec: float = 3.0) -> int:
+    """从 LRC 文件读内容并转换为 SRT 文件"""
+    if not os.path.isfile(lrc_path):
+        logger.warning(f"lrc_file_to_srt: file not found: {lrc_path}")
+        return 0
+    # LRC 文件可能是 GBK/UTF-8-BOM/UTF-8, 多编码尝试
+    for encoding in ("utf-8-sig", "utf-8", "gbk", "gb18030"):
+        try:
+            with open(lrc_path, "r", encoding=encoding) as f:
+                content = f.read()
+            return lrc_to_srt(content, output_path, default_duration_sec)
+        except UnicodeDecodeError:
+            continue
+    logger.warning(f"lrc_file_to_srt: cannot decode {lrc_path} with utf-8/gbk")
+    return 0
+
+
 if __name__ == "__main__":
     task_id = "c12fd1e6-4b0a-4d65-a075-c87abe35a072"
     task_dir = utils.task_dir(task_id)
