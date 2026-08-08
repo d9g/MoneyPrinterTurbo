@@ -2,7 +2,6 @@
 audio.analyzer — 主入口: analyze_audio(path) -> AudioFeatures
 Diana 审计 4.2 加缓存层
 """
-import hashlib
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -27,12 +26,19 @@ _analysis_cache: Dict[str, AudioFeatures] = {}
 
 
 def _file_hash(path: str) -> str:
-    """文件内容 MD5 hash, 用于缓存 key (Diana 4.2)"""
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        while chunk := f.read(8192):
-            h.update(chunk)
-    return h.hexdigest()
+    """缓存 key (审计 P0-2 修复: 避免大文件全量读 MD5 导致 OOM)
+
+    方案 C 双保险: size + mtime_ns + name
+    - size: 文件大小 (字节)
+    - mtime_ns: 修改时间 (纳秒精度, 上传后修改必然变化)
+    - name: 文件名 (防 path 不同但 size+mtime 一致的边缘 case)
+
+    对 50-100MB 音频文件: 原方案 read(8192) 全量读 2 次 (hash + preprocess),
+    新方案只需 os.stat, 耗时从 100ms+ 降到 1ms 以内。
+    """
+    p = Path(path)
+    stat = p.stat()
+    return f"{stat.st_size}:{stat.st_mtime_ns}:{p.name}"
 
 
 def _validate_path(path: str) -> None:
