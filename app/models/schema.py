@@ -93,6 +93,9 @@ class VideoParams(BaseModel):
     )
     
     custom_audio_file: Optional[str] = None  # Custom audio file path, will ignore TTS and can still use Whisper subtitles
+    # 老杨 8/8 21:09: 高潮段独立 MV - 截取音频 [start, end] 区间（秒）
+    audio_clip_range_start: Optional[float] = None
+    audio_clip_range_end: Optional[float] = None
     video_language: Optional[str] = ""  # auto detect
 
     voice_name: Optional[str] = ""

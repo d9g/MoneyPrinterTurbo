@@ -682,6 +682,13 @@ def generate_final_videos(
             max_clip_duration=params.video_clip_duration,
             threads=params.n_threads,
             clip_speed=params.video_clip_speed,
+            # 老杨 8/8 21:09: 高潮段独立 MV - 截取音频区间
+            audio_clip_range=(
+                (params.audio_clip_range_start, params.audio_clip_range_end)
+                if params.audio_clip_range_start is not None
+                and params.audio_clip_range_end is not None
+                else None
+            ),
         )
 
         _progress += 50 / params.video_count / 2

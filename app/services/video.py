@@ -9,7 +9,7 @@ import tempfile
 import unicodedata
 from contextlib import ExitStack, redirect_stdout
 from functools import lru_cache
-from typing import List
+from typing import List, Optional, Tuple
 from loguru import logger
 import numpy as np
 from moviepy import (
@@ -545,9 +545,16 @@ def combine_videos(
     max_clip_duration: int = 5,
     threads: int = 2,
     clip_speed: float = 1.0,
+    audio_clip_range: Optional[Tuple[float, float]] = None,
 ) -> str:
     audio_clip = AudioFileClip(audio_file)
     try:
+        # 老杨 8/8 21:09: 高潮段独立 MV - 截取音频 [start, end] 区间
+        if audio_clip_range is not None:
+            start, end = audio_clip_range
+            # 截取音频
+            audio_clip = audio_clip.subclip(start, end)
+            logger.info(f"audio_clipped: {start:.2f}s-{end:.2f}s (range={end - start:.2f}s)")
         # 这里只需要读取旁白音频时长来决定素材视频拼接长度；后续不会再使用
         # audio_clip。读取完成后立即关闭，避免早退或异常路径泄漏文件句柄。
         audio_duration = audio_clip.duration
