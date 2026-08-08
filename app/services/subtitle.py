@@ -307,94 +307,16 @@ def correct(subtitle_file, video_script):
 # 支持扩展 LRC (含字): [00:01.23]<00:01.45>字<00:01.67>字<00:01.89>字
 # 增强 LRC 仅取时间戳 + 整句文本, 忽略逐字时间
 
-_LRC_LINE_RE = re.compile(r"\[([0-9:.]+)\]")
-_LRC_TAG_RE = re.compile(r"\[(ar|ti|al|by|offset|re|ve):[^\]]*\]", re.IGNORECASE)
-
-
 def parse_lrc(lrc_text: str) -> list:
-    """解析 LRC 文本为 [(time_seconds, text), ...] 列表
+    """解析 LRC 文本为 [(time_seconds, text), ...] 列表 (审计 P2-8)
 
-    Args:
-        lrc_text: LRC 文件内容 (UTF-8)
-
-    Returns:
-        按时间排序的 [(time_sec, text)] 列表
+    审计 P2-8 修复: 委托给 lyrics_parser.parse_lrc (合并重复实现)。
+    lyrics_parser 版本支持多时间戳 + 全局 offset + 增强 LRC。
+    返回格式 [timestamp_ms, text] 转换为 (time_sec, text)。
     """
-    entries = []
-    global_offset_ms = 0
-    for raw_line in lrc_text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        # 提取全局偏移量 [offset:N]
-        offset_match = re.search(r"\[offset:(-?\d+)\]", line, re.IGNORECASE)
-        if offset_match:
-            global_offset_ms = int(offset_match.group(1))
-            # 移除 offset 标签后继续处理其余部分
-            line = re.sub(r"\[offset:-?\d+\]", "", line, flags=re.IGNORECASE).strip()
-            if not line:
-                continue
-
-        # 跳过元数据标签 (ar/ti/al/by/re/ve)
-        if _LRC_TAG_RE.match(line):
-            continue
-
-        # 提取所有时间戳
-        timestamps = _LRC_LINE_RE.findall(line)
-        if not timestamps:
-            continue
-
-        # 提取文本部分 (最后一个 ] 之后)
-        text_match = re.split(r"\]\s*", line, maxsplit=len(timestamps))
-        text = text_match[-1].strip() if text_match else ""
-        if not text:
-            continue
-
-        # 增强 LRC: 去除 <00:00.00> 逐字时间戳标记
-        text = re.sub(r"<\d+:\d+\.\d+>", "", text).strip()
-        if not text:
-            continue
-
-        # 处理每个时间戳 (多时间戳 -> 多条目)
-        for ts in timestamps:
-            t_sec = _lrc_timestamp_to_seconds(ts)
-            if t_sec is None:
-                continue
-            t_sec += global_offset_ms / 1000.0
-            entries.append((t_sec, text))
-
-    # 按时间排序
-    entries.sort(key=lambda x: x[0])
-    return entries
-
-
-def _lrc_timestamp_to_seconds(ts: str) -> float | None:
-    """转换 LRC 时间戳为秒
-
-    支持格式:
-      [mm:ss.xx]   例如 [01:23.45]
-      [mm:ss]      例如 [01:23]
-      [mm:ss.xxx]  例如 [01:23.456]
-      [h:mm:ss.xx] 例如 [1:23:45.67] (极少数)
-    """
-    ts = ts.strip()
-    parts = ts.split(":")
-    if len(parts) == 2:
-        # mm:ss.xx
-        try:
-            m, s = parts
-            return int(m) * 60 + float(s)
-        except ValueError:
-            return None
-    elif len(parts) == 3:
-        # h:mm:ss.xx
-        try:
-            h, m, s = parts
-            return int(h) * 3600 + int(m) * 60 + float(s)
-        except ValueError:
-            return None
-    return None
+    from app.services.lyrics_parser import parse_lrc as _parse_lrc_ms
+    parsed = _parse_lrc_ms(lrc_text)
+    return [(item["timestamp_ms"] / 1000.0, item["text"]) for item in parsed]
 
 
 def _seconds_to_srt_time(t: float) -> str:
