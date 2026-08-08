@@ -20,9 +20,19 @@ class VideoPromptSchema(BaseModel):
 
 
 class IntentSchema(BaseModel):
-    """MV 意境方案完整 schema"""
+    """MV 意境方案完整 schema (老杨 8/8 拍板: theme_keywords 中英双语)
+
+    校验规则:
+    - 必须存在 theme_keywords_cn + theme_keywords_en (新字段)
+    - 旧字段 theme_keywords 如果 LLM 仍然输出, 不报错 (PopulatedField 兑底)
+    """
+    model_config = {"populate_by_name": True}
+
     mood_summary: str = Field(..., min_length=10, max_length=500)
-    theme_keywords: List[str] = Field(..., min_length=3, max_length=15)
+    theme_keywords_cn: List[str] = Field(..., min_length=3, max_length=15)
+    theme_keywords_en: List[str] = Field(..., min_length=3, max_length=15)
+    # 旧字段仅兑底 (旧任务中可能的旧主题关键词, 留给老数据兼容)
+    theme_keywords: Optional[List[str]] = Field(default=None, description="Legacy field, kept for backward compatibility")
     color_palette: List[str] = Field(..., min_length=3, max_length=8)
     video_prompts: List[VideoPromptSchema] = Field(..., min_length=1)
     transition_style: str = Field(..., min_length=1)
