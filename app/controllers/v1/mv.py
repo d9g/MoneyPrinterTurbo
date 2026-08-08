@@ -42,6 +42,32 @@ _LYRICS_EXTENSIONS = {".lrc", ".qrc", ".txt"}
 # 上传目录
 _STORAGE_MV = Path(config.app.get("storage_mv_dir", "storage/mv"))
 _STORAGE_MV.mkdir(parents=True, exist_ok=True)
+_STORAGE_MV_RESOLVED = _STORAGE_MV.resolve()  # 审计 P0-1: 路径遍历校验基准
+
+
+def _validate_storage_id(file_id: str, request_id: str) -> Path:
+    """审计 P0-1: 校验 file_id 安全, 防止路径遍历 (audio_id / lyrics_file_id)
+
+    返回安全的 Path (绝对路径, 在 _STORAGE_MV 之下)。
+    校验: file_id 只含安全字符 + resolve() 在 _STORAGE_MV.resolve() 之下。
+    """
+    import re
+    # 格式: mva- 或 mvl- 前缀 + uuid.hex[:12] + 文件后缀
+    if not re.match(r'^mv[al]-[a-f0-9]{12}\.[a-z0-9]{1,5}$', file_id):
+        raise HttpException(
+            task_id=request_id, status_code=400,
+            message=f"invalid file_id format: {file_id}",
+        )
+    target = (_STORAGE_MV / file_id).resolve()
+    # 必须落在 _STORAGE_MV 之下 (防止 .. 绕过)
+    try:
+        target.relative_to(_STORAGE_MV_RESOLVED)
+    except ValueError:
+        raise HttpException(
+            task_id=request_id, status_code=400,
+            message=f"file_id escapes storage dir: {file_id}",
+        )
+    return target
 
 # MV 意境历史 DB 路径 (老杨 22:18 拍板: 独立 SQLite)
 _MV_INTENT_DB = config.app.get("mv_intent_db_path", "storage/mv/mv_intent.db")
@@ -132,8 +158,8 @@ async def mv_analyze(
     """
     request_id = base.get_task_id(request)
 
-    # 1. 找音频文件
-    audio_path = _STORAGE_MV / audio_id
+    # 1. 找音频文件 (审计 P0-1: 路径遍历校验)
+    audio_path = _validate_storage_id(audio_id, request_id)
     if not audio_path.exists():
         raise HttpException(task_id=request_id, status_code=404, message=f"audio_id not found: {audio_id}")
 
@@ -144,7 +170,8 @@ async def mv_analyze(
         lyrics_str = lyrics_text.strip()
         lyrics_meta = {"source": "manual_paste", "char_count": len(lyrics_str)}
     elif lyrics_file_id:
-        lyrics_path = _STORAGE_MV / lyrics_file_id
+        # 审计 P0-1: 路径遍历校验
+        lyrics_path = _validate_storage_id(lyrics_file_id, request_id)
         if not lyrics_path.exists():
             raise HttpException(task_id=request_id, status_code=404, message=f"lyrics_file_id not found: {lyrics_file_id}")
         try:
@@ -235,6 +262,8 @@ async def mv_cache(
         limit: 返回历史条数 (默认 5, 最大 50)
     """
     request_id = base.get_task_id(request)
+    # 审计 P0-1: 路径遍历校验 (GET 路由同样需要)
+    _validate_storage_id(audio_id, request_id)
     repo = get_intent_repository(_MV_INTENT_DB)
     latest = repo.get_latest(audio_id)
     if not latest:
