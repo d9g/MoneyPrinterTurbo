@@ -3075,7 +3075,10 @@ def _render_elevenlabs_api_key_input(label_key):
 _MV_CACHE_REANALYZE_LIMIT = 5     # 同 signature 重跑上限 (老杨 8/8 17:34: 默认5,调试时可调)
 _MV_CACHE_TTL_DAYS = 180          # 超过 N 天才允许重新调 LLM (半年到 1 年阈值下限)
 _MV_AUDIO_SESSION_KEY = "mv_audio_analysis_result"  # session_state 里存结果的 key
-_MV_DIALOG_FLAG_KEY = "mv_audio_analysis_dialog_open"  # dialog 是否打开
+# 老杨 8/8 21:41: 改为一次性信号. 原因: flag=True 会让后续所有 rerun 都弹, 主界面其他
+# 选项改动都触发弹窗. 现在: 弹后立即 pop, 只有用户主动点击才产生新信号
+_MV_DIALOG_REQUEST_KEY = "mv_audio_analysis_dialog_request"  # 一次性信号: True=下轮弹
+_MV_DIALOG_FLAG_KEY = _MV_DIALOG_REQUEST_KEY  # 向后兼容别名 (遗留代码可能还用)
 _MV_PENDING_APPLY_KEY = "mv_audio_pending_apply"  # dialog callback 写的待应用队列 (避免直接改 video_script / video_terms widget key)
 _MV_FORCE_RERUN_KEY = "mv_force_rerun"  # 调试开关: True = 绕过缓存强制重跑 LLM
 
@@ -3395,7 +3398,7 @@ def _run_audio_mv_analysis(
     }
 
 
-@st.dialog(tr("Audio Analysis Panel"), width="large")
+@st.dialog(tr("Audio Analysis Panel"), width="large", on_dismiss="rerun")
 def _render_audio_analysis_dialog():
     """老杨 8/8 13:34 拍板的弹窗: 曲调特征 + 意境 + 关键词 + 配色 + 段落拍摄 + 3 个应用按钮
 
@@ -3464,9 +3467,8 @@ def _render_audio_analysis_dialog():
         pending["video_script_append"] = (pending.get("video_script_append") or "") + ("\n\n" if pending.get("video_script_append") else "") + ms
         pending["source_version"] = ver
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
-        st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        # 老杨 8/8 18:09: dialog 必须在回调后立刻全 app rerun, 否则
-        # page widget 看不到 pending dict (fragment scope 不触发 page rerun)
+        # 老杨 8/8 21:41: 不需手动设 flag=False. 一次性 signal 被 _render_audio_analysis_panel 弹后 pop.
+        # callback 直接 st.rerun(scope='app') 触发 page rerun → _apply_pending_mv_audio 消费
         st.rerun(scope="app")
 
     def _apply_keywords_callback(kws: list):
@@ -3481,7 +3483,6 @@ def _render_audio_analysis_dialog():
             pending["video_terms_append"] = new_terms
         pending["keyword_count"] = pending.get("keyword_count", 0) + len(kws)
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
-        st.session_state[_MV_DIALOG_FLAG_KEY] = False
         st.rerun(scope="app")
 
     def _apply_both_callback(ms: str, kws: list):
@@ -3502,7 +3503,6 @@ def _render_audio_analysis_dialog():
             pending["keyword_count"] = pending.get("keyword_count", 0) + len(kws)
         pending["source_version"] = pending.get("source_version", version)
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
-        st.session_state[_MV_DIALOG_FLAG_KEY] = False
         st.rerun(scope="app")
 
     def _close_dialog():
@@ -3630,7 +3630,6 @@ def _render_audio_analysis_dialog():
                 pending["chorus_range_end"] = round(end, 2)
                 pending["source_version"] = pending.get("source_version", ver)
                 st.session_state[_MV_PENDING_APPLY_KEY] = pending
-                st.session_state[_MV_DIALOG_FLAG_KEY] = False
                 # 老杨 8/8 18:09: 全 app rerun 强制 page widget 看到新值
                 st.rerun(scope="app")
 
@@ -3676,13 +3675,17 @@ def _render_audio_analysis_panel(uploaded_audio_file):
                 # 老杨 8/8 21:31: 按段落拼接 - 存 plan + features 供视频生成用
                 st.session_state["_mv_current_plan"] = result.get("plan")
                 st.session_state["_mv_current_features"] = result.get("features")
-                st.session_state[_MV_DIALOG_FLAG_KEY] = True  # 分析完自动弹
+                # 老杨 8/8 21:41 bug 修复: 用一次性信号代替持久 flag
+                # 原因: flag=True 会让后续所有 rerun 都重复弹窗, 哪怕主界面其他改动
+                # 用 _MV_DIALOG_REQUEST_KEY: 在下轮 rerun 弹, 弹后立即清
+                st.session_state[_MV_DIALOG_REQUEST_KEY] = True
             except Exception as exc:
                 logger.error(f"mv_audio_analysis failed: {exc}")
                 st.error(tr("Audio Analysis Failed").format(error=str(exc)))
 
     def _open_dialog_callback():
-        st.session_state[_MV_DIALOG_FLAG_KEY] = True
+        # 老杨 8/8 21:41 bug 修复: 一次性信号代替持久 flag
+        st.session_state[_MV_DIALOG_REQUEST_KEY] = True
 
     btn_cols = st.columns([1, 1], gap="small")
     with btn_cols[0]:
@@ -3744,8 +3747,10 @@ def _render_audio_analysis_panel(uploaded_audio_file):
             on_click=_clear_mv_cache_callback,
         )
 
-    # 如果 flag 为 True, 弹 dialog (点分析 / 点查看都会跳)
-    if st.session_state.get(_MV_DIALOG_FLAG_KEY):
+    # 老杨 8/8 21:41 bug 修复: 用一次性信号代替持久 flag
+    # 原 bug: 主界面其他选项改动触发 rerun → flag 还是 True → dialog 又弹
+    # 修法: 一次性信号 key, 弹后立即 pop. 只有用户主动点击才产生新信号
+    if st.session_state.pop(_MV_DIALOG_REQUEST_KEY, False):
         _render_audio_analysis_dialog()
 
 
