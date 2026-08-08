@@ -11,7 +11,7 @@ from loguru import logger
 from .features.dynamic import get_dynamic
 from .features.key import get_key
 from .features.pitch import get_pitch_range
-from .features.sections import detect_sections
+from .features.sections import detect_chorus_segments, detect_sections
 from .features.spectral import get_spectral
 from .features.style import detect_style
 from .features.tempo import get_tempo
@@ -81,6 +81,7 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
     dynamic_info = get_dynamic(y, sr)
     spectral_info = get_spectral(y, sr)
     sections = detect_sections(y, sr)
+    chorus_segments = detect_chorus_segments(y, sr, top_k=3)  # Diana 8/8: 高潮检测 精选1/2/3
 
     # 3. 风格识别 (Diana 3.1, v2.0 占位)
     style_info = detect_style(
@@ -100,6 +101,7 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
         dynamic=dynamic_info,
         spectral=spectral_info,
         sections=sections,
+        chorus_segments=chorus_segments,  # Diana 8/8
         style=style_info,
         id3_metadata=id3_metadata,    # Diana 2.2 歌曲指纹第一层 (v2-7 新增)
     )

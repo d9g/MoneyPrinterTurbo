@@ -73,7 +73,19 @@ class SectionInfo:
     intensity: str           # low / medium / high
 
 
-# ================ 风格识别 (Diana 3.1 新增) ================
+@dataclass
+class ChorusSegment:
+    """高潮段信息 (Diana 8/8 高潮检测)
+
+    多维特征识别: RMS能量 + spectral centroid (高频亮度) + onset strength (节拍密度)
+    """
+    index: int               # 精选1/2/3
+    start: float             # 起始时间 (秒)
+    end: float               # 结束时间 (秒)
+    duration: float          # 时长
+    confidence: float        # 置信度 0-1
+    chorus_type: str         # main_chorus / post_chorus / pre_chorus / breakdown
+    label: str               # 人类可读: "主歌A 高潮区" / "副歌 后半段"
 
 @dataclass
 class StyleInfo:
@@ -102,6 +114,7 @@ class AudioFeatures:
     dynamic: DynamicInfo
     spectral: SpectralInfo
     sections: List[SectionInfo]
+    chorus_segments: List["ChorusSegment"] = field(default_factory=list)  # Diana 8/8: 高潮段检测 (精选1/2/3)
     style: Optional[StyleInfo] = None               # Diana 3.1: 风格识别可后续填入
     id3_metadata: Optional["ID3Metadata"] = None   # Diana 2.2: 歌曲指纹第一层 (v2-7 新增)
 
