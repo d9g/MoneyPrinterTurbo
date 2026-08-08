@@ -1936,6 +1936,101 @@ def _render_cache_management_settings(panel):
     width="medium",
     on_dismiss=_dismiss_settings_dialog,
 )
+def _render_mv_analysis_settings(panel):
+    """MV 意境分析设置 (老杨 8/8 17:40 拍板)
+
+    放在 Settings dialog 里, 供老杨调:
+    - MV LLM 重跑上限 (同 signature 重跑 N 次后复用缓存)
+    - 高潮检测参数 (top_k)
+    - 缓存时间 (TTL 天)
+    """
+    from app.services.mv import get_intent_repository
+    from app.services.mv.db import init_db as init_mv_db
+    from app.config import config as app_config
+
+    global _MV_CACHE_REANALYZE_LIMIT, _MV_CACHE_TTL_DAYS
+
+    with panel:
+        st.caption(tr("MV Analysis Settings Help"))
+
+        # 重跑上限 slider
+        st.session_state.setdefault(
+            "mv_cache_reanalyze_limit", _MV_CACHE_REANALYZE_LIMIT
+        )
+        new_limit = st.slider(
+            tr("MV Cache Reanalyze Limit"),
+            min_value=1,
+            max_value=20,
+            value=int(st.session_state["mv_cache_reanalyze_limit"]),
+            step=1,
+            help=tr("MV Cache Reanalyze Limit Help"),
+            key="mv_cache_reanalyze_limit_slider",
+        )
+        if new_limit != _MV_CACHE_REANALYZE_LIMIT:
+            _MV_CACHE_REANALYZE_LIMIT = new_limit
+            st.session_state["mv_cache_reanalyze_limit"] = new_limit
+
+        # TTL 天数 slider
+        st.session_state.setdefault("mv_cache_ttl_days", _MV_CACHE_TTL_DAYS)
+        new_ttl = st.slider(
+            tr("MV Cache TTL Days"),
+            min_value=7,
+            max_value=365,
+            value=int(st.session_state["mv_cache_ttl_days"]),
+            step=1,
+            help=tr("MV Cache TTL Days Help"),
+            key="mv_cache_ttl_days_slider",
+        )
+        if new_ttl != _MV_CACHE_TTL_DAYS:
+            _MV_CACHE_TTL_DAYS = new_ttl
+            st.session_state["mv_cache_ttl_days"] = new_ttl
+
+        # MV 缓存统计
+        try:
+            db_path = app_config.app.get(
+                "mv_intent_db_path", "storage/mv/mv_intent.db"
+            )
+            init_mv_db(db_path)
+            repo = get_intent_repository(db_path)
+            stats = repo.get_stats() if hasattr(repo, "get_stats") else None
+            if stats:
+                cache_cols = st.columns(2)
+                cache_cols[0].metric(
+                    tr("MV Cache Total Records"), stats.get("total", 0)
+                )
+                cache_cols[1].metric(
+                    tr("MV Cache Unique Signatures"), stats.get("unique_signatures", 0)
+                )
+        except Exception as exc:
+            st.caption(f"MV cache stats error: {exc}")
+
+        # 一键清除所有 MV 缓存
+        def _purge_all_mv_cache_callback():
+            try:
+                db_path = app_config.app.get(
+                    "mv_intent_db_path", "storage/mv/mv_intent.db"
+                )
+                init_mv_db(db_path)
+                repo = get_intent_repository(db_path)
+                deleted = repo.delete_all() if hasattr(repo, "delete_all") else 0
+                st.toast(
+                    f"🗑 Cleared all MV cache: {deleted} records",
+                    icon="🗑",
+                )
+                logger.info(f"mv_cache_purge_all: deleted={deleted}")
+            except Exception as exc:
+                st.error(f"purge failed: {exc}")
+
+        st.button(
+            tr("MV Cache Purge All"),
+            key="mv_cache_purge_all_button",
+            use_container_width=True,
+            type="secondary",
+            help=tr("MV Cache Purge All Help"),
+            on_click=_purge_all_mv_cache_callback,
+        )
+
+
 def _render_settings_dialog():
     with st.container():
         # 历史 hide_config 只用于隐藏旧基础设置面板。改为固定设置入口后，该值
@@ -1946,12 +2041,14 @@ def _render_settings_dialog():
             right_config_panel,
             cache_config_panel,
             left_config_panel,
+            mv_config_panel,
         ) = st.tabs(
             [
                 tr("LLM Settings Tab"),
                 tr("Material API Tab"),
                 tr("Cache Management Tab"),
                 tr("Interface Settings Tab"),
+                tr("MV Analysis Tab"),
             ]
         )
 
@@ -1965,6 +2062,9 @@ def _render_settings_dialog():
             _set_runtime_config("ui", "hide_log", hide_log)
 
         _render_cache_management_settings(cache_config_panel)
+
+        # === MV 分析设置 (老杨 8/8 17:40) ===
+        _render_mv_analysis_settings(mv_config_panel)
 
         # 中间面板 - LLM 设置
 
@@ -3444,16 +3544,19 @@ def _render_audio_analysis_dialog():
 
     # === 高潮段检测 (Diana 8/8 老杨拍板) ===
     # 老杨 17:34 原话: "有多少高潮就选几个, 识别不出来高潮就不选"
-    # detect_chorus_segments 返回 1-N 个 (实际几个就几个, 不限 3 个), UI 列表全部列出
+    # detect_chorus_segments 返回 1-N 个 (实际几个就几个)
+    # 老杨 17:40: UI 最多展示 3 个 -> 如果识别出 >3 个取 confidence 最高的 3 个, <3 个按数量显示
     chorus_segments = features.get("chorus_segments", []) if isinstance(features, dict) else []
     if chorus_segments:
+        # 取前 3 个 (detect_chorus_segments 已经按 confidence 降序排过)
+        displayed_segments = chorus_segments[:3]
         st.markdown(f"### {tr('MV Chorus Section Title')}")
         st.caption(tr("MV Chorus Section Description"))
 
-        # 高潮段选项 radio (精选 1/2/3)
+        # 高潮段选项 radio (最多 3 个)
         chorus_options = []
         chorus_labels = []
-        for cs in chorus_segments:
+        for cs in displayed_segments:
             idx = cs.get("index", 0) + 1
             start = cs.get("start", 0)
             end = cs.get("end", 0)
@@ -4285,12 +4388,19 @@ def _render_subtitle_settings(panel, params):
                 )
                 if uploaded_lrc is not None:
                     # 保存上传的 LRC 到 workspace 目录
-                    lrc_save_dir = utils.root_dir() / "storage" / "lrc"
+                    # 老杨 8/8 17:40 bug fix:
+                    #   1. utils.root_dir() 返回 str, 不能用 / 运算符
+                    #   2. 原 re.sub(r"[^\\w\\-_\\.]", "_") 会把中文文件名换成下划线
+                    #      重写为只过滤路径分隔符 / 控制字符, 保留中英文
+                    lrc_save_dir = Path(utils.root_dir()) / "storage" / "lrc"
                     lrc_save_dir.mkdir(parents=True, exist_ok=True)
                     # 用文件内容 hash + 原文件名作为保存名
                     import hashlib
                     file_hash = hashlib.md5(uploaded_lrc.getvalue()).hexdigest()[:12]
-                    safe_name = re.sub(r"[^\w\-_\.]", "_", uploaded_lrc.name)
+                    # 只去除路径分隔符 + 控制字符, 保留中文/英文/数字/空格/常见符号
+                    safe_name = re.sub(r"[\\/:\*\?\"<>\|\\\x00-\x1f]", "_", uploaded_lrc.name)
+                    if not safe_name or safe_name.startswith("."):
+                        safe_name = "upload.lrc"
                     saved_lrc_path = lrc_save_dir / f"{file_hash}_{safe_name}"
                     with open(saved_lrc_path, "wb") as f:
                         f.write(uploaded_lrc.getbuffer())

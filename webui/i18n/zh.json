@@ -340,6 +340,16 @@
     "Upload LRC File": "上传 LRC 歌词文件",
     "Upload LRC File Help": "上传 .lrc 文件 (支持 UTF-8/GBK/增强 LRC, 包含逐字时间戳 <00:00.00>)",
     "LRC Upload Success": "✅ LRC 歌词已上传: {name}",
-    "LRC Current File": "📄 当前: {path} ({size} 字节)"
+    "LRC Current File": "📄 当前: {path} ({size} 字节)",
+    "MV Analysis Tab": "🎵 MV 分析",
+    "MV Analysis Settings Help": "控制音频意境分析服务的重跑上限 + 缓存有效时间",
+    "MV Cache Reanalyze Limit": "同首歌最多重跑 LLM 几次",
+    "MV Cache Reanalyze Limit Help": "超过该次数后复用历史 LLM 输出 (避免重复调 API 花钱). 调小多重新创意, 调大省成本",
+    "MV Cache TTL Days": "缓存有效天数",
+    "MV Cache TTL Days Help": "距离上次分析超过 N 天才允许重新调 LLM. 默认 180 天 (半年)",
+    "MV Cache Total Records": "MV 缓存总记录数",
+    "MV Cache Unique Signatures": "唯一歌曲数",
+    "MV Cache Purge All": "🗑 清空所有 MV 缓存",
+    "MV Cache Purge All Help": "删除 mv_intent_history 表的所有记录 (慎用, 会强制重新分析所有上传过的歌)"
   }
 }

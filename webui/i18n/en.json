@@ -340,6 +340,16 @@
     "Upload LRC File": "Upload LRC File",
     "Upload LRC File Help": "Upload .lrc file (UTF-8/GBK/Enhanced LRC with per-word timestamps supported)",
     "LRC Upload Success": "✅ LRC uploaded: {name}",
-    "LRC Current File": "📄 Current: {path} ({size} bytes)"
+    "LRC Current File": "📄 Current: {path} ({size} bytes)",
+    "MV Analysis Tab": "🎵 MV Analysis",
+    "MV Analysis Settings Help": "Control the rerun limit + cache TTL for the audio intent analysis service",
+    "MV Cache Reanalyze Limit": "Max LLM reruns per song",
+    "MV Cache Reanalyze Limit Help": "After N runs, reuse cached LLM output (avoid duplicate API calls). Lower=more variety, Higher=cheaper",
+    "MV Cache TTL Days": "Cache TTL (days)",
+    "MV Cache TTL Days Help": "Allow LLM rerun only if last run was > N days ago. Default 180 days (6 months)",
+    "MV Cache Total Records": "MV Cache Total Records",
+    "MV Cache Unique Signatures": "Unique Songs",
+    "MV Cache Purge All": "🗑 Purge All MV Cache",
+    "MV Cache Purge All Help": "Delete ALL rows in mv_intent_history table (use with caution: forces re-analysis for all previously uploaded songs)"
   }
 }
