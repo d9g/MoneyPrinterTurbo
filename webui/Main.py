@@ -3006,18 +3006,25 @@ def _compute_song_signature_for_upload(audio_path: str, features: dict, id3_meta
 def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dict, str]:
     """Q5 缓存策略判断
 
+    老杨 8/8 14:00 bug: 同一个歌分析三次都 first_run
+    根因: webui 每次生成新 uuid file_id (storage/mv/mva-aaa.mp3), DB 按 file_id 查
+    永远查不到历史记录
+    修法: 改为按 song_signature 查询 (相同歌永远同 signature, 跟上传次数无关)
+    audio_id 参数保留以便调用者存历史
+
     Returns:
         (should_run, latest_record_or_None, reason)
         reason: 'first_run' / 'within_limit' / 'cache_fresh' / 'cache_expired'
     """
     from datetime import datetime, timedelta
 
-    latest = repo.get_latest(audio_id) if audio_id else None
+    # 老杨 14:00 bug fix: 按 song_signature 查 (跨 audio_id 重用)
+    latest = repo.get_latest_by_signature(song_signature) if song_signature else None
     if not latest:
         return True, None, "first_run"
 
-    # 同 audio_id 看重跑次数
-    version_count = repo.count_versions(audio_id)
+    # 同 signature 看重跑次数 (按 song_signature 数 history, 跨 audio_id 计入)
+    version_count = repo.count_versions_by_signature(song_signature)
     if version_count < _MV_CACHE_REANALYZE_LIMIT:
         return True, latest, f"within_limit (v{version_count}/{_MV_CACHE_REANALYZE_LIMIT})"
 
@@ -3289,7 +3296,6 @@ def _render_audio_analysis_dialog():
         st.warning(tr("Audio Analysis No Audio"))
         if st.button(tr("Close"), key="mv_dialog_close_empty", use_container_width=True):
             st.session_state[_MV_DIALOG_FLAG_KEY] = False
-            st.rerun()
         return
 
     plan = result["plan"]
@@ -3328,16 +3334,21 @@ def _render_audio_analysis_dialog():
     st.divider()
 
     # 应用按钮 + 关闭按钮
-    # 关键: dialog button click 只 rerun dialog function (不 rerun page), 所以
-    # 不能直接改 page widget 的 session_state (会触发 StreamlitAPIException)。
-    # 改为写 pending queue, _render_application() 顶部 widget 实例化前消费。
+    # 老杨 8/8 13:53 + 13:58 bug 修复:
+    # 1. dialog button click 触发的是完整 script run (不是 partial rerun)
+    # 2. on_click callback 在 script run 之前执行, 它改 session_state 对后续
+    #    widget render 可见 (这是 streamlit 设计)
+    # 3. callback 里调 st.rerun() 是 no-op + warning, 跳过即可
+    # 4. dialog 关闭机制: 设 _MV_DIALOG_FLAG_KEY=False, 下次 _render_audio_analysis_panel
+    #    看到 flag=False 不调 _render_audio_analysis_dialog(), dialog 自动隐藏
+    # 5. 不能直接改 page widget session_state (video_script / video_terms),
+    #    改用 _MV_PENDING_APPLY_KEY pending dict, _render_application() 顶部消费
     def _apply_mood_callback(ms: str, ver: int):
         pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
         pending["video_script_append"] = (pending.get("video_script_append") or "") + ("\n\n" if pending.get("video_script_append") else "") + ms
         pending["source_version"] = ver
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        st.rerun()
 
     def _apply_keywords_callback(kws: list):
         pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
@@ -3352,7 +3363,6 @@ def _render_audio_analysis_dialog():
         pending["keyword_count"] = pending.get("keyword_count", 0) + len(kws)
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        st.rerun()
 
     def _apply_both_callback(ms: str, kws: list):
         pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
@@ -3373,11 +3383,9 @@ def _render_audio_analysis_dialog():
         pending["source_version"] = pending.get("source_version", version)
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        st.rerun()
 
     def _close_dialog():
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        st.rerun()
 
     apply_cols = st.columns(4)
     with apply_cols[0]:

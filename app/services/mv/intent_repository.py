@@ -165,19 +165,22 @@ class IntentRepository:
         """通过 song_signature 查找最新意境
 
         Diana 4.5: 用于并发锁内的 double-check
+        老杨 8/8 14:00 bug fix: webui 多次上传同歌生成不同 audio_id (uuid),
+        mv_intent_latest view 只按 audio_id PARTITION, 跨 audio_id 取最新失效。
+        改为直接查 mv_intent_history 主表 + ORDER BY version DESC, 跨 audio_id 正确。
         """
         if user_id:
             sql = """
-                SELECT * FROM mv_intent_latest
+                SELECT * FROM mv_intent_history
                 WHERE song_signature = ? AND user_id = ?
-                ORDER BY created_at DESC LIMIT 1
+                ORDER BY version DESC, created_at DESC LIMIT 1
             """
             params = (song_signature, user_id)
         else:
             sql = """
-                SELECT * FROM mv_intent_latest
+                SELECT * FROM mv_intent_history
                 WHERE song_signature = ?
-                ORDER BY created_at DESC LIMIT 1
+                ORDER BY version DESC, created_at DESC LIMIT 1
             """
             params = (song_signature,)
         row = self.db.fetch_one(sql, params)
@@ -188,6 +191,18 @@ class IntentRepository:
         row = self.db.fetch_one(
             "SELECT COUNT(*) AS cnt FROM mv_intent_history WHERE audio_id = ?",
             (audio_id,),
+        )
+        return row["cnt"] if row else 0
+
+    def count_versions_by_signature(self, song_signature: str) -> int:
+        """老杨 8/8 14:00 bug fix: 跨 audio_id 重跑计数 (同歌多次分析都计入)
+
+        webui 每次生成新 uuid file_id, count_versions(audio_id) 只数 1。
+        按 song_signature 数才是'同歌被分析过几次'。
+        """
+        row = self.db.fetch_one(
+            "SELECT COUNT(*) AS cnt FROM mv_intent_history WHERE song_signature = ?",
+            (song_signature,),
         )
         return row["cnt"] if row else 0
 
