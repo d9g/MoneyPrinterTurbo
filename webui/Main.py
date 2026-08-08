@@ -2968,6 +2968,7 @@ _MV_CACHE_REANALYZE_LIMIT = 3     # 同 signature 重跑上限
 _MV_CACHE_TTL_DAYS = 180          # 超过 N 天才允许重新调 LLM (半年到 1 年阈值下限)
 _MV_AUDIO_SESSION_KEY = "mv_audio_analysis_result"  # session_state 里存结果的 key
 _MV_DIALOG_FLAG_KEY = "mv_audio_analysis_dialog_open"  # dialog 是否打开
+_MV_PENDING_APPLY_KEY = "mv_audio_pending_apply"  # dialog callback 写的待应用队列 (避免直接改 video_script / video_terms widget key)
 
 
 def _init_mv_runtime():
@@ -3327,47 +3328,51 @@ def _render_audio_analysis_dialog():
     st.divider()
 
     # 应用按钮 + 关闭按钮
+    # 关键: dialog button click 只 rerun dialog function (不 rerun page), 所以
+    # 不能直接改 page widget 的 session_state (会触发 StreamlitAPIException)。
+    # 改为写 pending queue, _render_application() 顶部 widget 实例化前消费。
     def _apply_mood_callback(ms: str, ver: int):
-        existing = st.session_state.get("video_script", "") or ""
-        separator = "\n\n" if existing.strip() else ""
-        st.session_state["video_script"] = (
-            existing.rstrip() + separator + ms
-        ).strip()
+        pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
+        pending["video_script_append"] = (pending.get("video_script_append") or "") + ("\n\n" if pending.get("video_script_append") else "") + ms
+        pending["source_version"] = ver
+        st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        st.toast(tr("Audio Analysis LLM Run").format(version=ver), icon="✅")
         st.rerun()
 
     def _apply_keywords_callback(kws: list):
-        existing = st.session_state.get("video_terms", "") or ""
+        pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
+        existing_terms = pending.get("video_terms_append", "")
         new_terms = ", ".join(kws)
-        if existing.strip():
-            st.session_state["video_terms"] = (
-                existing.rstrip().rstrip(",") + ", " + new_terms
+        if existing_terms.strip():
+            pending["video_terms_append"] = (
+                existing_terms.rstrip().rstrip(",") + ", " + new_terms
             )
         else:
-            st.session_state["video_terms"] = new_terms
+            pending["video_terms_append"] = new_terms
+        pending["keyword_count"] = pending.get("keyword_count", 0) + len(kws)
+        st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        st.toast(f"Applied {len(kws)} English keywords", icon="✅")
         st.rerun()
 
     def _apply_both_callback(ms: str, kws: list):
+        pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
         if ms:
-            existing = st.session_state.get("video_script", "") or ""
-            separator = "\n\n" if existing.strip() else ""
-            st.session_state["video_script"] = (
-                existing.rstrip() + separator + ms
-            ).strip()
+            prev = pending.get("video_script_append", "")
+            sep = "\n\n" if prev.strip() else ""
+            pending["video_script_append"] = (prev.rstrip() + sep + ms).strip() if prev else ms
         if kws:
-            existing_terms = st.session_state.get("video_terms", "") or ""
+            existing_terms = pending.get("video_terms_append", "")
             new_terms = ", ".join(kws)
             if existing_terms.strip():
-                st.session_state["video_terms"] = (
+                pending["video_terms_append"] = (
                     existing_terms.rstrip().rstrip(",") + ", " + new_terms
                 )
             else:
-                st.session_state["video_terms"] = new_terms
+                pending["video_terms_append"] = new_terms
+            pending["keyword_count"] = pending.get("keyword_count", 0) + len(kws)
+        pending["source_version"] = pending.get("source_version", version)
+        st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
-        st.toast("✅ Applied to both fields", icon="✨")
         st.rerun()
 
     def _close_dialog():
@@ -4579,6 +4584,53 @@ def _render_generation_controls(
     return start_button
 
 
+def _apply_pending_mv_audio():
+    """消费 _MV_PENDING_APPLY_KEY 队列, 在 widget 实例化前将内容合并到 video_script / video_terms
+
+    老杨 8/8 13:53 bug 修复: dialog button click 只 rerun dialog function, 不能直接
+    改 page widget 的 session_state key (会触发 StreamlitAPIException)。
+    解法: dialog callback 只写 pending dict, _render_application() 顶部 widget
+    实例化前从 pending 读出来合并到 widget key。 (跟 _apply_pending_task_restore 同模式)
+
+    Returns:
+        bool: 是否处理了 pending (供 _render_application() 提示 toast)
+    """
+    pending = st.session_state.pop(_MV_PENDING_APPLY_KEY, None)
+    if not pending:
+        return False
+
+    script_append = pending.get("video_script_append", "")
+    terms_append = pending.get("video_terms_append", "")
+    keyword_count = pending.get("keyword_count", 0)
+
+    if script_append:
+        existing = st.session_state.get("video_script", "") or ""
+        separator = "\n\n" if existing.strip() else ""
+        st.session_state["video_script"] = (
+            (existing.rstrip() + separator + script_append).strip()
+        )
+    if terms_append:
+        existing_terms = st.session_state.get("video_terms", "") or ""
+        if existing_terms.strip():
+            st.session_state["video_terms"] = (
+                existing_terms.rstrip().rstrip(",") + ", " + terms_append
+            )
+        else:
+            st.session_state["video_terms"] = terms_append
+
+    # toast 提示
+    if script_append and terms_append:
+        st.toast("✅ Applied to both fields", icon="✨")
+    elif script_append:
+        st.toast(
+            tr("Audio Analysis LLM Run").format(version=pending.get("source_version", 0)),
+            icon="✅",
+        )
+    elif terms_append and keyword_count:
+        st.toast(f"Applied {keyword_count} English keywords", icon="✅")
+    return True
+
+
 def _render_application():
     """按固定顺序渲染顶部栏、弹窗、生成表单和任务结果。"""
     _render_top_bar()
@@ -4593,6 +4645,10 @@ def _render_application():
     restore_succeeded = st.session_state.pop("task_restore_succeeded", False)
     if restore_applied or restore_succeeded:
         st.success(tr("Task Configuration Loaded"))
+
+    # 老杨 8/8 13:53: 在 video_script / video_terms widget 实例化之前消费音频分析 pending
+    # (跟 _apply_pending_task_restore 同模式)
+    _apply_pending_mv_audio()
 
     with st.container(key="main_settings_grid"):
         panel = st.columns(4)
