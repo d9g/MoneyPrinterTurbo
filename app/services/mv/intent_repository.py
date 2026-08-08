@@ -208,6 +208,21 @@ class IntentRepository:
 
     # ---------- 维护 ----------
 
+    def delete_by_signature(self, song_signature: str) -> int:
+        """老杨 8/8 17:34: 按 song_signature 删除该歌所有历史记录 (调试用)
+
+        返回删除的条数. 调试按钮 '🗑 Clear MV Cache' 调用此函数.
+        """
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                "DELETE FROM mv_intent_history WHERE song_signature = ?",
+                (song_signature,),
+            )
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"intent_repo: deleted {deleted} records by signature {song_signature[:20]}")
+            return deleted
+
     def cleanup_old_versions(self, audio_id: str, keep: int = 10) -> int:
         """Diana 4.4: 保留最近 N 个版本, 删除旧的"""
         with self.db.transaction() as conn:

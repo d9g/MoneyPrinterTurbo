@@ -91,6 +91,11 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
 
     Returns:
         List[ChorusSegment] (按置信度降序, 最多 top_k 个)
+        如果一个都识别不到, 返回空列表 [] (不强凑数)
+
+    老杨 8/8 17:34:
+      - “有多少高潮就选几个, 识别不出来高潮就不选”
+      - top_k 默认 3 (足够 UI 列表展示), 但不限定, 识别出 1-2 个就返回 1-2 个
     """
     from ..models import ChorusSegment
 

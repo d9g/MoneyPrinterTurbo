@@ -2,6 +2,7 @@ import hashlib
 import html
 import json
 import math
+import time
 import mimetypes
 import os
 import re
@@ -1193,6 +1194,13 @@ def _render_top_bar():
             _render_pending_version_check()
 
     with actions_col:
+        # 老杨 8/8 17:34: 临时成功提示 (avoid st.toast fragment rerun x2)
+        _apply_msg = st.session_state.pop("_mv_apply_message", None)
+        if _apply_msg:
+            apply_ts = st.session_state.pop("_mv_apply_message_ts", 0)
+            # 50秒内有效, 超时不清
+            if time.time() - apply_ts < 50:
+                st.success(_apply_msg)
         with st.container(
             key="top_bar_actions",
             horizontal=True,
@@ -2964,11 +2972,12 @@ def _render_elevenlabs_api_key_input(label_key):
 # 回显曲调特征 + 意境总结 + 一键填充到 video_script / video_terms 两个输入框。
 # 缓存策略: 同 song_signature 重跑 ≤ 3 次, 超过读缓存; 缓存超过 180 天才允许重跑 (Q5 老杨拍板).
 
-_MV_CACHE_REANALYZE_LIMIT = 3     # 同 signature 重跑上限
+_MV_CACHE_REANALYZE_LIMIT = 5     # 同 signature 重跑上限 (老杨 8/8 17:34: 默认5,调试时可调)
 _MV_CACHE_TTL_DAYS = 180          # 超过 N 天才允许重新调 LLM (半年到 1 年阈值下限)
 _MV_AUDIO_SESSION_KEY = "mv_audio_analysis_result"  # session_state 里存结果的 key
 _MV_DIALOG_FLAG_KEY = "mv_audio_analysis_dialog_open"  # dialog 是否打开
 _MV_PENDING_APPLY_KEY = "mv_audio_pending_apply"  # dialog callback 写的待应用队列 (避免直接改 video_script / video_terms widget key)
+_MV_FORCE_RERUN_KEY = "mv_force_rerun"  # 调试开关: True = 绕过缓存强制重跑 LLM
 
 
 def _init_mv_runtime():
@@ -3014,9 +3023,14 @@ def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dic
 
     Returns:
         (should_run, latest_record_or_None, reason)
-        reason: 'first_run' / 'within_limit' / 'cache_fresh' / 'cache_expired'
+        reason: 'first_run' / 'within_limit' / 'cache_fresh' / 'cache_expired' / 'force_rerun'
     """
     from datetime import datetime, timedelta
+
+    # 老杨 8/8 17:34: 调试开关, 勾选后绕过缓存强制重跑 LLM
+    import streamlit as st
+    if st.session_state.get(_MV_FORCE_RERUN_KEY, False):
+        return True, None, "force_rerun (debug)"
 
     # 老杨 14:00 bug fix: 按 song_signature 查 (跨 audio_id 重用)
     latest = repo.get_latest_by_signature(song_signature) if song_signature else None
@@ -3241,6 +3255,8 @@ def _run_audio_mv_analysis(
     # 4. Q5 缓存策略
     should_run, latest, reason = _should_run_llm(repo, file_id, signature_str)
     logger.info(f"mv_audio_analysis: should_run={should_run} reason={reason}")
+    # 老杨 8/8 17:34: 记下当前 signature 供 clear_cache 用
+    st.session_state["_mv_last_signature"] = signature_str
 
     # 5. 决定: 重跑 / 复用缓存
     if should_run:
@@ -3426,9 +3442,9 @@ def _render_audio_analysis_dialog():
 
     st.divider()
 
-    # === 高潮段检测 (Diana 8/8 老杨拍板 精选 1/2/3) ===
-    # 老杨原话: "你可以列出程序识别的精选1, 精选2, 精选3. 然后可以选择对应的一个高潮章节,
-    #         回显到界面上匹配高潮对应的搜索关键字"
+    # === 高潮段检测 (Diana 8/8 老杨拍板) ===
+    # 老杨 17:34 原话: "有多少高潮就选几个, 识别不出来高潮就不选"
+    # detect_chorus_segments 返回 1-N 个 (实际几个就几个, 不限 3 个), UI 列表全部列出
     chorus_segments = features.get("chorus_segments", []) if isinstance(features, dict) else []
     if chorus_segments:
         st.markdown(f"### {tr('MV Chorus Section Title')}")
@@ -3559,6 +3575,45 @@ def _render_audio_analysis_panel(uploaded_audio_file):
             type="secondary",
             disabled=not has_result,
             on_click=_open_dialog_callback,
+        )
+
+    # === Debug 控件 (老杨 8/8 17:34 拍板) ===
+    # 同一首歌测试不同 LLM 输出时: 勾选 "强制重跑" 绕过缓存
+    # 调试清缓存: 勾选后点 "清 MV 缓存" 删除该歌的所有历史 LLM 输出
+    debug_cols = st.columns([1, 1], gap="small")
+    with debug_cols[0]:
+        st.checkbox(
+            "🛠 Force Rerun (bypass cache)",
+            key=_MV_FORCE_RERUN_KEY,
+            value=False,
+            help="勾选后下次点分析会绕过缓存强制调用 LLM",
+        )
+    with debug_cols[1]:
+        def _clear_mv_cache_callback():
+            """清当前 signature 的 MV 缓存记录"""
+            from app.services.mv.db import init_db as init_mv_db
+            from app.services.mv import get_intent_repository
+            from app.config import config
+            db_path = config.app.get("mv_intent_db_path", "storage/mv/mv_intent.db")
+            try:
+                init_mv_db(db_path)
+            except Exception:
+                pass
+            repo = get_intent_repository(db_path)
+            sig = st.session_state.get("_mv_last_signature", "")
+            deleted = 0
+            if sig:
+                deleted = repo.delete_by_signature(sig)
+            st.session_state.pop(_MV_AUDIO_SESSION_KEY, None)
+            st.session_state[_MV_DIALOG_FLAG_KEY] = False
+            st.toast(f"已清除 MV 缓存 (signature={sig[:20]}..., {deleted} 条)", icon="🗑")
+            logger.info(f"mv_cache_clear: signature={sig[:20]} deleted={deleted}")
+        st.button(
+            "🗑 Clear MV Cache",
+            key="mv_clear_cache_button",
+            use_container_width=True,
+            help="清除当前音频的 MV 缓存记录, 下次点分析会重新调用 LLM",
+            on_click=_clear_mv_cache_callback,
         )
 
     # 如果 flag 为 True, 弹 dialog (点分析 / 点查看都会跳)
@@ -4740,6 +4795,9 @@ def _apply_pending_mv_audio():
 
     Returns:
         bool: 是否处理了 pending (供 _render_application() 提示 toast)
+
+    老杨 8/8 17:34: 去掉 st.toast() 避免 fragment rerun 乘 2
+    改为写一个 transient session_state 标志位, top bar 显示一个临时 '✓ 已应用' 提示
     """
     pending = st.session_state.pop(_MV_PENDING_APPLY_KEY, None)
     if not pending:
@@ -4764,16 +4822,21 @@ def _apply_pending_mv_audio():
         else:
             st.session_state["video_terms"] = terms_append
 
-    # toast 提示
+    # 老杨 8/8 17:34: 不用 st.toast() (会调 st.rerun + 乘 2 fragment rerun)
+    # 改为 session_state 标志 + top bar 渲染, 50s 后过期
     if script_append and terms_append:
-        st.toast("✅ Applied to both fields", icon="✨")
+        st.session_state["_mv_apply_message"] = "✅ Applied to both fields"
     elif script_append:
-        st.toast(
-            tr("Audio Analysis LLM Run").format(version=pending.get("source_version", 0)),
-            icon="✅",
+        st.session_state["_mv_apply_message"] = (
+            f"✅ Applied mood (v{pending.get('source_version', 0)})"
         )
     elif terms_append and keyword_count:
-        st.toast(f"Applied {keyword_count} English keywords", icon="✅")
+        st.session_state["_mv_apply_message"] = (
+            f"✅ Applied {keyword_count} English keywords"
+        )
+    else:
+        st.session_state["_mv_apply_message"] = "✅ Applied"
+    st.session_state["_mv_apply_message_ts"] = time.time()
     return True
 
 
