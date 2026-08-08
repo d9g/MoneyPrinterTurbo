@@ -134,13 +134,24 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
 
     # 4. 综合能量 = 0.5 * RMS + 0.3 * centroid + 0.2 * onset
     composite = rms_n * 0.5 + centroid_n * 0.3 + onset_n * 0.2
+    # 老杨 8/8 18:09: 对能量曲线做滑动平均平滑 (3 秒窗口) 避免局部波动误识别
+    smooth_window = max(1, int(3 * sr / hop_length))
+    if smooth_window > 1 and len(composite) > smooth_window:
+        kernel = np.ones(smooth_window) / smooth_window
+        composite_smooth = np.convolve(composite, kernel, mode='same')
+    else:
+        composite_smooth = composite
 
-    # 5. 滑动窗口检测高潮区域 (窗口 = 15 秒, 跳跃 = 5 秒)
-    #    典型歌曲高潮段持续 15-30 秒, 窗口取 15 秒足够辨识
-    win_frames = int(15 * sr / hop_length)
+    # 5. 滑动窗口检测高潮区域
+    #    老杨 8/8 18:09: 不再使用固定 15 秒窗口
+    #    改为以峰为中心, 向前/向后扩展到能量下降到 peak * 0.5 处 (“句子结尾”)
+    #    最大不超过 40 秒, 最小不少于 10 秒 (避免过短)
+    win_frames = int(15 * sr / hop_length)  # 保留仅用于最初的 peak 附近区间
     hop_frames = int(5 * sr / hop_length)
+    min_chorus_frames = int(6 * sr / hop_length)   # 最小 6s (大约 4-8 个4 拍小节, 老杨 8/8 18:09)
+    max_chorus_frames = int(40 * sr / hop_length)  # 最大 40s (超过是 “话分两段” 的子峰)
 
-    if n_frames < win_frames:
+    if n_frames < min_chorus_frames:
         # 歌曲太短, 整首当作高潮
         seg = ChorusSegment(
             index=0,
@@ -154,10 +165,11 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
         return [seg]
 
     # 6. 用 scipy.signal.find_peaks 找 energy 高峰 (避免按窗口滑求同一高点重复)
+    # 老杨 8/8 18:09: 在平滑后曲线上找峰 (避免局部波动误识别)
     from scipy.signal import find_peaks
     # distance= 20s (两个高潮区间隔不会太近)
     peaks, _ = find_peaks(
-        composite,
+        composite_smooth,
         distance=int(20 * sr / hop_length),
         prominence=0.05,  # 只取较明显的峰
     )
@@ -168,12 +180,45 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
 
     candidates = []
     for p_idx in peaks:
-        # 高峰点为中心的 15s 区间
-        start_f = max(0, int(p_idx) - win_frames // 2)
-        end_f = min(n_frames, int(p_idx) + win_frames // 2)
-        if end_f - start_f < win_frames // 2:
-            continue
+        # 老杨 8/8 18:09: 动态边界 - 以 peak 为中心, 向两边扩展到局部谷点 ("句子结尾")
+        # 使用平滑后的能量曲线 (避免局部波动)
+        peak_value = float(composite_smooth[int(p_idx)])
+        threshold = peak_value * 0.5
+
+        def expand_until_valley(start_f: int, direction: int) -> int:
+            """从 peak 向 direction 扩展, 找到局部谷点 (能量降到 threshold 以下)"""
+            f = start_f
+            step_count = 0
+            max_step = max_chorus_frames // 2
+            while 0 <= f < n_frames - 1 and step_count < max_step:
+                next_f = f + direction
+                if not (0 <= next_f < n_frames):
+                    break
+                if composite_smooth[f] < threshold:
+                    return f
+                f = next_f
+                step_count += 1
+            return f
+
+        end_f = expand_until_valley(int(p_idx), +1)
+        start_f = expand_until_valley(int(p_idx), -1)
+        # 保证最小长度 6s (一两句歌词)
+        if end_f - start_f < min_chorus_frames:
+            pad = (min_chorus_frames - (end_f - start_f)) // 2
+            start_f = max(0, start_f - pad)
+            end_f = min(n_frames, end_f + pad)
+        # 不与其他 peak 重叠 (以峰为中线划分)
+        for other_p in peaks:
+            if other_p == p_idx:
+                continue
+            mid = (int(p_idx) + int(other_p)) // 2
+            if int(p_idx) < int(other_p) and end_f > mid:
+                end_f = mid
+            elif int(p_idx) > int(other_p) and start_f < mid:
+                start_f = mid
         seg_composite = composite[start_f:end_f]
+        if len(seg_composite) == 0:
+            continue
         score = float(seg_composite.mean())
         peak_composite = float(seg_composite.max())
         start_t = float(times[start_f])

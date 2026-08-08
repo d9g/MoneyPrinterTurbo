@@ -3465,6 +3465,9 @@ def _render_audio_analysis_dialog():
         pending["source_version"] = ver
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        # 老杨 8/8 18:09: dialog 必须在回调后立刻全 app rerun, 否则
+        # page widget 看不到 pending dict (fragment scope 不触发 page rerun)
+        st.rerun(scope="app")
 
     def _apply_keywords_callback(kws: list):
         pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
@@ -3479,6 +3482,7 @@ def _render_audio_analysis_dialog():
         pending["keyword_count"] = pending.get("keyword_count", 0) + len(kws)
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        st.rerun(scope="app")
 
     def _apply_both_callback(ms: str, kws: list):
         pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
@@ -3499,9 +3503,11 @@ def _render_audio_analysis_dialog():
         pending["source_version"] = pending.get("source_version", version)
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        st.rerun(scope="app")
 
     def _close_dialog():
         st.session_state[_MV_DIALOG_FLAG_KEY] = False
+        st.rerun(scope="app")
 
     apply_cols = st.columns(4)
     with apply_cols[0]:
@@ -3619,6 +3625,8 @@ def _render_audio_analysis_dialog():
                 pending["source_version"] = pending.get("source_version", ver)
                 st.session_state[_MV_PENDING_APPLY_KEY] = pending
                 st.session_state[_MV_DIALOG_FLAG_KEY] = False
+                # 老杨 8/8 18:09: 全 app rerun 强制 page widget 看到新值
+                st.rerun(scope="app")
 
             st.button(
                 tr("Apply Chorus Keywords Button"),
