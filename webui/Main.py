@@ -3704,9 +3704,16 @@ def _render_mv_analysis_dialog(task_id: str, task: dict):
     数据流: task_id → mv_intent_history.task_id → IntentRecord
     """
     try:
-        from app.services.mv.intent_repository import IntentRepository
-        from app.services.mv.db.connection import get_db
-        repo = IntentRepository(db=get_db())
+        # 2026-08-09 老杨 19:31 bug 修复:
+        # 原代码 IntentRepository(db=get_db()) 失败:
+        #   get_db() 是懒加载, 首次调用必须传 db_path
+        #   但 webui 启动时只调 init_mv_db() 建表, 没调过 get_db() 设置单例
+        #   所以 get_db()  -> ValueError: db_path required on first call
+        # 修复: 先调 _init_mv_runtime() (webui 内部 helper)
+        #       它 init DB + 设 IntentRepository 单例 + 返回 repo
+        from app.services.mv import get_intent_repository
+        _init_mv_runtime()  # 确保 IntentRepository 单例已设
+        repo = get_intent_repository()  # 走单例
         record = repo.get_by_task_id(task_id)
     except Exception as exc:
         st.error(f"加载 MV plan 失败: {type(exc).__name__}: {exc}")
