@@ -40,6 +40,15 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+# 老杨 8/9 08:19 拍板: print 没 flush, log 看不出进度. 全部 print 走这里.
+_print = print
+
+
+def print(*args, **kwargs):
+    """全局 print 加 flush=True (防 log 卡 buffer, 后台跑看不到进度)"""
+    kwargs.setdefault("flush", True)
+    _print(*args, **kwargs)
+
 
 # ===== 配置 =====
 SONGS_DIR = Path("/root/MoneyPrinterTurbo/resource/songs")
