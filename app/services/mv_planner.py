@@ -251,6 +251,7 @@ class MvPlanner:
         title: Optional[str] = None,
         history: Optional[List[IntentRecord]] = None,
         user_id: Optional[str] = None,    # Diana 2.4 预留字段, 当前不接业务
+        task_id: Optional[str] = None,    # 2026-08-09 P1-4: 关联 video task
     ) -> dict:
         """主入口
 
@@ -302,6 +303,7 @@ class MvPlanner:
                 title=title,
                 prompt_history_json=history_json,
                 llm_result=llm_result,
+                task_id=task_id,  # 2026-08-09 P1-4
             )
             plan["_version"] = self.repo.count_versions(audio_id)
         else:
@@ -413,6 +415,7 @@ class MvPlanner:
         title: Optional[str] = None,
         prompt_history_json: Optional[str] = None,
         llm_error: Optional[str] = None,
+        task_id: Optional[str] = None,  # 2026-08-09 P1-4
     ) -> int:
         """写库 (Diana 2.5 is_latest 维护)"""
         # 计算下一个 version 号
@@ -435,6 +438,7 @@ class MvPlanner:
             prompt_tokens=llm_result.prompt_tokens if llm_result else None,
             completion_tokens=llm_result.completion_tokens if llm_result else None,
             cost_usd=llm_result.cost_usd if llm_result else None,
+            task_id=task_id,  # 2026-08-09 P1-4: 关联 video task
         )
 
     # ---------- Prompt 构建 ----------

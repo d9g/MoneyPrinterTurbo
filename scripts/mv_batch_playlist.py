@@ -87,11 +87,12 @@ def parse_lyrics(lrc_path: Path) -> str:
     return "\n".join(text_lines), parsed
 
 
-def build_plan(features: Dict[str, Any], lyrics_text: str, signature: str, audio_id: str, artist: Optional[str] = None, title: Optional[str] = None) -> Dict[str, Any]:
+def build_plan(features: Dict[str, Any], lyrics_text: str, signature: str, audio_id: str, artist: Optional[str] = None, title: Optional[str] = None, task_id: Optional[str] = None) -> Dict[str, Any]:
     """Step 3: LLM 出方案 (意境 + 中英关键词 + 调色)
-    
+
     老杨 8/9 10:30 拍板: 不再输出分段时间轴, theme_keywords_en 给 Pexels 搜视频
     老杨 8/9 10:32 拍板: 传 audio_id 让 plan 写库 (P1-5 修复)
+    2026-08-09 P1-4: 传 task_id 关联 video task (mv_intent_history.task_id)
     """
     from app.services.mv_planner import MvPlanner
 
@@ -104,6 +105,7 @@ def build_plan(features: Dict[str, Any], lyrics_text: str, signature: str, audio
         audio_id=audio_id,
         artist=artist,
         title=title,
+        task_id=task_id,  # 2026-08-09 P1-4
     )
     return plan
 
@@ -141,7 +143,9 @@ def build_params(
         "video_aspect": "9:16",
         "video_concat_mode": "random",
         "video_transition_mode": transition,
-        "video_clip_duration": 3,
+        # 2026-08-09 老杨 12:46: clip 从 3s → 8s, 减少下载+combine 内存
+# 264s 音频 × 8s/clip = 33 个 clip, 距 40 上限有 space buffer
+"video_clip_duration": 8,
         "video_clip_speed": 1.0,
         "video_count": 1,
         "video_source": "pexels",
@@ -422,6 +426,20 @@ def process_one_song(ogg_path: Path, dry_run: bool = False, bg: bool = False) ->
     task_id = submit_task(API_BASE, params)
     print(f"  ✅ task_id={task_id}")
 
+    # 2026-08-09 P1-4: Step 3 写 plan 时 task_id=None, Step 5 拿到后回填
+    if audio_id and plan.get('_version', 0) > 0:
+        try:
+            from app.services.mv.intent_repository import IntentRepository
+            from app.services.mv.db.connection import get_db
+            repo = IntentRepository(db=get_db())
+            updated = repo.update_task_id(audio_id, plan['_version'], task_id)
+            if updated:
+                print(f"  🔗 关联 task_id → mv_intent_history (audio_id={audio_id}, v{plan['_version']})")
+            else:
+                print(f"  ⚠️  update_task_id 未命中 (可能 plan 未写库)")
+        except Exception as exc:
+            print(f"  ⚠️  update_task_id 失败: {type(exc).__name__}: {exc}")
+
     # 老杨 8/9 10:58 拍板: bg 模式提交后立刻返回, 不 poll
     if bg:
         elapsed = time.time() - t0
@@ -478,23 +496,43 @@ def main():
         default=API_BASE,
         help="FastAPI 地址",
     )
+    # 2026-08-09 老杨 12:53 拍板: 渐进式验证 (1 → 2 → 3)
+    # 原话: '下次再测试的时候, 就不要串行3个了. 先串行一个有结果了再串行2个或者3个之类的'
+    # 意思: 默认只跑 1 首验证流程通, 验证后才跑多首
+    # 默认 1 = 验证1 个 MV 能成功出, 防止批量全炸不知道问题在哪首
+    parser.add_argument(
+        "--max-songs",
+        type=int,
+        default=1,
+        help="老杨 8/9 12:53 拍板: 渐进式验证.\n"
+             "  - 1 (默认): 验证流程, 只跑前 1 首\n"
+             "  - 2: 验证 2 首串行\n"
+             "  - 3: 验证 3 首串行\n"
+             "建议: 第一次跑 --max-songs 1, OK 后才加 2, 2 OK 后才加 3",
+    )
     args = parser.parse_args()
 
     songs_dir = Path(args.songs_dir)
     api_base = args.api
 
     # 找所有 *_L.ogg
-    songs = sorted(songs_dir.glob("*_L.ogg"))
-    if not songs:
+    songs_all = sorted(songs_dir.glob("*_L.ogg"))
+    if not songs_all:
         print(f"❌ 目录 {songs_dir} 里没有 *_L.ogg 文件")
         sys.exit(1)
+
+    # 2026-08-09 老杨 12:53 拍板: 渐进式 (默认只跑 1 首验证)
+    max_songs = max(1, int(args.max_songs))
+    songs = songs_all[:max_songs]
 
     print(f"🎬 mv_batch_playlist.py")
     print(f"   songs_dir: {songs_dir}")
     print(f"   api: {api_base}")
-    print(f"   found: {len(songs)} 首歌")
+    print(f"   found: {len(songs_all)} 首歌 (按 --max-songs={max_songs} 只跑前 {len(songs)} 首)")
     for s in songs:
         print(f"   - {s.name} ({s.stat().st_size / 1024:.0f} KB)")
+    if len(songs_all) > len(songs):
+        print(f"   ⏭️  跳过 {len(songs_all) - len(songs)} 首: {', '.join(s.name for s in songs_all[len(songs):])}")
     print(f"   dry_run: {args.dry_run}")
     print(f"   bg: {args.bg} (True=提交后不等, 后台生成)")
 

@@ -798,11 +798,23 @@ def _render_task_table(filtered_tasks, key_prefix):
                 row_cols[3].write(f"{task['progress']}%")
 
                 action_cols = row_cols[4].columns(
-                    4,
+                    5,  # 2026-08-09 P2-6: 加 1 个 "🎵 MV" 弹窗按钮
                     vertical_alignment="center",
                     gap="small",
                 )
                 with action_cols[0]:
+                    # 2026-08-09 P2-6: MV 弹窗入口 (点击展开音频特征 + LLM plan)
+                    mv_label = tr("MV")
+                    if st.button(
+                        mv_label,
+                        key=f"mv_task_{key_prefix}_{task_id}",
+                        use_container_width=True,
+                        icon=":material/queue_music:",
+                        help=f"{mv_label}: 音频特征 + LLM plan",
+                    ):
+                        _render_mv_analysis_dialog(task_id, task)
+                with action_cols[1]:
+                    # 老 0 (P2-6 后变为 1)
                     play_label = tr("Play")
                     if st.button(
                         play_label,
@@ -814,7 +826,7 @@ def _render_task_table(filtered_tasks, key_prefix):
                     ):
                         _open_task_video(task["video_file"])
 
-                with action_cols[1]:
+                with action_cols[2]:
                     open_label = tr("Open Task Folder")
                     if st.button(
                         open_label,
@@ -825,7 +837,7 @@ def _render_task_table(filtered_tasks, key_prefix):
                     ):
                         _open_task_path(task["task_path"])
 
-                with action_cols[2]:
+                with action_cols[3]:
                     restore_label = tr("Regenerate Task")
                     if st.button(
                         restore_label,
@@ -837,7 +849,7 @@ def _render_task_table(filtered_tasks, key_prefix):
                     ):
                         _queue_task_restore(task_id)
 
-                with action_cols[3]:
+                with action_cols[4]:
                     delete_label = tr("Delete Task")
                     delete_help = (
                         f"{delete_label} ({tr('Task Status Processing')})"
@@ -3667,6 +3679,130 @@ def _render_audio_analysis_dialog():
             )
         else:
             st.caption(tr("MV Chorus No Matching Section"))
+
+
+@st.dialog(tr("MV Plan History"), width="large", on_dismiss="rerun")
+def _render_mv_analysis_dialog(task_id: str, task: dict):
+    """2026-08-09 P2-6: 任务管理点击 MV 按钮 → 弹窗查看这个 task 的 LLM plan
+
+    老杨 8/9 11:06 拍板: '这些功能是需要的, 你先加一下代码'
+
+    内容:
+    - audio_features (BPM / key / duration / sections / chorus)
+    - LLM plan (mood_summary + theme_keywords 中英 + color_palette)
+    - Pexels 搜索词 (video_terms)
+    - 原始文件路径 (custom_audio / lrc_file)
+    - LLM 调用元信息 (latency / model / cost / tokens / version)
+
+    数据流: task_id → mv_intent_history.task_id → IntentRecord
+    """
+    try:
+        from app.services.mv.intent_repository import IntentRepository
+        from app.services.mv.db.connection import get_db
+        repo = IntentRepository(db=get_db())
+        record = repo.get_by_task_id(task_id)
+    except Exception as exc:
+        st.error(f"加载 MV plan 失败: {type(exc).__name__}: {exc}")
+        return
+
+    if not record:
+        st.warning(tr("MV Plan History Not Found"))
+        st.caption(
+            f"task_id={task_id}\n"
+            f"可能原因: 该任务不是 MV 模式生成的, 或者 plan 未写入数据库"
+        )
+        if st.button(tr("Close"), key=f"mv_dlg_close_{task_id}"):
+            st.rerun()
+        return
+
+    # ---- 顶部元信息 ----
+    import json as _json
+    st.caption(
+        f"📋 task_id={task_id[:12]}... | audio_id={record.audio_id} | "
+        f"version={record.version} | source={record.source} | "
+        f"created_at={record.created_at}"
+    )
+
+    # ---- LLM 元信息 ----
+    if record.llm_latency_ms is not None or record.llm_model:
+        with st.expander(tr("MV LLM Meta"), expanded=False):
+            cols = st.columns(4)
+            cols[0].metric("latency_ms", record.llm_latency_ms or "-")
+            cols[1].metric("model", record.llm_model or "-")
+            if record.cost_usd is not None:
+                cols[2].metric("cost_usd", f"${record.cost_usd:.5f}")
+            if record.prompt_tokens is not None:
+                cols[3].metric(
+                    "tokens",
+                    f"{record.prompt_tokens}+{record.completion_tokens}",
+                )
+            if record.llm_error:
+                st.error(f"LLM error: {record.llm_error}")
+
+    # ---- 音频特征 (从 audio_features JSON 读) ----
+    try:
+        features = task.get("params", {}).get("audio_features", {}) if isinstance(task.get("params"), dict) else {}
+    except Exception:
+        features = {}
+
+    # 跨 audio_id 不一定能在 task 里读到 features, 但 record.duration_seconds 是权威
+    audio_info_cols = st.columns(4)
+    audio_info_cols[0].metric("duration_s", f"{record.duration_seconds:.1f}")
+    audio_info_cols[1].metric("artist", record.artist or "-")
+    audio_info_cols[2].metric("title", record.title or "-")
+    audio_info_cols[3].metric("signature", record.song_signature[:12] + "...")
+
+    # ---- LLM plan 主内容 ----
+    try:
+        plan_dict = _json.loads(record.intent_json)
+    except Exception as exc:
+        st.error(f"intent_json 解析失败: {exc}")
+        plan_dict = {}
+
+    mood = plan_dict.get("mood_summary", "") or plan_dict.get("mood", "")
+    if mood:
+        st.subheader(tr("MV Mood Summary"))
+        st.write(mood)
+
+    # 中文 / 英文关键词
+    kw_cn = plan_dict.get("theme_keywords_cn", [])
+    kw_en = plan_dict.get("theme_keywords_en", [])
+
+    kw_cols = st.columns(2)
+    if kw_cn:
+        with kw_cols[0]:
+            st.subheader("🎨 主题关键词 (中)")
+            for k in kw_cn:
+                st.write(f"- {k}")
+    if kw_en:
+        with kw_cols[1]:
+            st.subheader("🎬 Theme Keywords (EN) — Pexels")
+            for k in kw_en:
+                st.code(k, language="text")
+
+    # ---- Pexels 搜索词 (从 task.params.video_terms) ----
+    try:
+        params = task.get("params", {}) if isinstance(task.get("params"), dict) else {}
+        video_terms = params.get("video_terms", [])
+    except Exception:
+        video_terms = []
+    if video_terms:
+        with st.expander(f"📺 Pexels 搜索词 ({len(video_terms)} 个)", expanded=True):
+            st.code(", ".join(video_terms), language="text")
+
+    # ---- OGG / LRC / 原始文件路径 ----
+    try:
+        params = task.get("params", {}) if isinstance(task.get("params"), dict) else {}
+    except Exception:
+        params = {}
+    file_cols = st.columns(2)
+    ogg = params.get("custom_audio_file") or ""
+    lrc = params.get("lrc_file") or ""
+    file_cols[0].caption(f"🎵 OGG: {Path(ogg).name if ogg else '-'}")
+    file_cols[1].caption(f"📝 LRC: {Path(lrc).name if lrc else '-'}")
+
+    if st.button(tr("Close"), key=f"mv_dlg_close_bottom_{task_id}", use_container_width=True):
+        st.rerun()
 
 
 def _render_audio_analysis_panel(uploaded_audio_file):

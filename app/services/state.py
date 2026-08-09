@@ -168,8 +168,14 @@ class RedisState(BaseState):
             **kwargs,
         }
 
+        # 2026-08-09 P2-7: dict/list 序列化为 JSON (而不是 str(dict))
+        import json
         for field, value in fields.items():
-            self._redis.hset(task_id, field, str(value))
+            if isinstance(value, (dict, list)):
+                serialized = json.dumps(value, ensure_ascii=False)
+            else:
+                serialized = str(value)
+            self._redis.hset(task_id, field, serialized)
 
     def get_task(self, task_id: str):
         task_data = self._redis.hgetall(task_id)
@@ -215,6 +221,15 @@ class RedisState(BaseState):
         conversion.
         """
         value_str = value.decode("utf-8")
+
+        # 2026-08-09 P2-7: dict/list 优先用 JSON (ast.literal_eval 会出错，
+        # 例: lrc_file='./storage/lrc/xxx=.lrc' 中的 '=' 不是合法 literal)
+        if value_str.startswith(("{", "[")):
+            try:
+                import json
+                return json.loads(value_str)
+            except (ValueError, SyntaxError):
+                pass
 
         try:
             # try to convert byte string array to list
