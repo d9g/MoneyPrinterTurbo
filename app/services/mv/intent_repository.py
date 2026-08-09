@@ -27,6 +27,7 @@ class IntentRecord:
     """意境历史记录 (从 DB 行转换)"""
     id: int
     user_id: Optional[str]
+    task_id: Optional[str]  # 2026-08-09 P1-4: 关联 video task
     audio_id: str
     song_signature: str
     artist: Optional[str]
@@ -55,6 +56,7 @@ class IntentRecord:
         return cls(
             id=row["id"],
             user_id=row["user_id"],
+            task_id=row["task_id"],  # 2026-08-09 P1-4
             audio_id=row["audio_id"],
             song_signature=row["song_signature"],
             artist=row["artist"],
@@ -110,11 +112,13 @@ class IntentRepository:
         completion_tokens: Optional[int] = None,
         cost_usd: Optional[float] = None,
         set_latest: bool = True,
+        task_id: Optional[str] = None,  # 2026-08-09 P1-4: 关联 video task
     ) -> int:
         """插入一条意境历史
 
         Args:
             set_latest: 是否标记为最新版本 (会同时把旧版本 is_latest=0)
+            task_id: 关联的 FastAPI task_id (webui/MV 弹窗查询使用)
         """
         with self.db.transaction() as conn:
             if set_latest:
@@ -126,14 +130,14 @@ class IntentRepository:
             cursor = conn.execute(
                 """
                 INSERT INTO mv_intent_history
-                (user_id, audio_id, song_signature, artist, title, duration_seconds,
+                (task_id, user_id, audio_id, song_signature, artist, title, duration_seconds,
                  version, is_latest, intent_json, source, llm_error,
                  prompt_history_json, llm_model, llm_latency_ms,
                  prompt_tokens, completion_tokens, cost_usd)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    user_id, audio_id, song_signature, artist, title, duration_seconds,
+                    task_id, user_id, audio_id, song_signature, artist, title, duration_seconds,
                     version, 1 if set_latest else 0, intent_json, source, llm_error,
                     prompt_history_json, llm_model, llm_latency_ms,
                     prompt_tokens, completion_tokens, cost_usd,
@@ -160,6 +164,32 @@ class IntentRepository:
     def get_recent_for_evolution(self, audio_id: str, n: int = 3) -> List[IntentRecord]:
         """Diana 3.3: 拿最近 N 条历史, 用于 LLM 进化 prompt"""
         return self.get_all_versions(audio_id, limit=n)
+
+    def update_task_id(self, audio_id: str, version: int, task_id: str) -> bool:
+        """2026-08-09 P1-4: UPDATE 最新 version 的 task_id
+
+        mv_batch 场景: Step 3 写 plan (task_id=None), Step 5 拿到 task_id 后回填
+        Returns: 是否成功 (False 表示该 version 不存在)
+        """
+        with self.db.transaction() as conn:
+            cur = conn.execute(
+                "UPDATE mv_intent_history SET task_id = ? "
+                "WHERE audio_id = ? AND version = ?",
+                (task_id, audio_id, version),
+            )
+            return cur.rowcount > 0
+
+    def get_by_task_id(self, task_id: str) -> Optional[IntentRecord]:
+        """2026-08-09 P1-4: 通过 task_id 查询意境 (WebUI 弹窗使用)
+
+        一个 task 可能对应多条 intent (同歌重跑), 返回最新版本
+        """
+        row = self.db.fetch_one(
+            "SELECT * FROM mv_intent_history WHERE task_id = ? "
+            "ORDER BY version DESC LIMIT 1",
+            (task_id,),
+        )
+        return IntentRecord.from_row(row) if row else None
 
     def get_latest_by_signature(self, song_signature: str, user_id: Optional[str] = None) -> Optional[IntentRecord]:
         """通过 song_signature 查找最新意境
