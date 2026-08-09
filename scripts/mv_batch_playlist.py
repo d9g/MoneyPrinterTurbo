@@ -292,16 +292,18 @@ def poll_task(
             continue
 
         # ---- 正常分支: 解析 task 状态 ----
+        # 老杨 8/9 09:11 拍板: API 返的 state 是 INT (1=COMPLETE, -1=FAILED, 4=PROCESSING)
+        # 老代码用字符串 'completed'/'failed' 比较, 永远不匹配, poll 永不退出
         state = data.get("state", "unknown")
         progress = data.get("progress", 0)
         if state != last_state:
             print(f"  ⏳ [{elapsed:>5.0f}s] state={state} progress={progress:.1f}%")
             last_state = state
 
-        if state == "completed":
+        if state == 1:  # TASK_STATE_COMPLETE
             print(f"  ✅ [{elapsed:>5.0f}s] completed!")
             return data
-        if state == "failed":
+        if state == -1:  # TASK_STATE_FAILED
             err = data.get("error", "unknown")
             print(f"  ❌ [{elapsed:>5.0f}s] failed: {err}")
             raise RuntimeError(f"task {task_id} failed: {err}")

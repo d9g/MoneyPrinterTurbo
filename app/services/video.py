@@ -22,6 +22,7 @@ from moviepy import (
     TextClip,
     VideoFileClip,
     afx,
+    concatenate_videoclips,
 )
 from moviepy.video.tools.subtitles import SubtitlesClip
 from PIL import Image, ImageDraw, ImageFont
@@ -588,7 +589,7 @@ def combine_videos_segmented(
         # 高潮段裁剪
         if audio_clip_range is not None:
             start, end = audio_clip_range
-            audio_clip = audio_clip.subclip(start, end)
+            audio_clip = audio_clip.subclipped(start, end)
             logger.info(f"audio_clipped: {start:.2f}s-{end:.2f}s (range={end - start:.2f}s)")
         audio_duration = audio_clip.duration
     finally:
@@ -668,7 +669,7 @@ def combine_videos_segmented(
                     break
                 use_dur = min(clip_dur, remaining)
                 if use_dur < clip_dur:
-                    clip = clip.subclip(0, use_dur)
+                    clip = clip.subclipped(0, use_dur)
                 seg_clips.append(clip)
                 remaining -= use_dur
             except Exception as e:
@@ -685,7 +686,7 @@ def combine_videos_segmented(
             seg_concat = concatenate_videoclips(seg_clips, method="compose")
             # 如果超过段时长则裁剪
             if seg_concat.duration > seg_duration:
-                seg_concat = seg_concat.subclip(0, seg_duration)
+                seg_concat = seg_concat.subclipped(0, seg_duration)
             video_clips.append(seg_concat)
             # close 中间 clips
             for c in seg_clips:
@@ -697,7 +698,7 @@ def combine_videos_segmented(
     final_clip = concatenate_videoclips(video_clips, method="compose")
     # 裁剪到所需时长 (可能因各段加总超出/不足)
     if final_clip.duration > required_video_duration:
-        final_clip = final_clip.subclip(0, required_video_duration)
+        final_clip = final_clip.subclipped(0, required_video_duration)
     elif final_clip.duration < required_video_duration - 0.5:
         logger.warning(
             f"final_clip.duration={final_clip.duration:.2f}s < required={required_video_duration:.2f}s, "
@@ -745,7 +746,7 @@ def combine_videos(
         if audio_clip_range is not None:
             start, end = audio_clip_range
             # 截取音频
-            audio_clip = audio_clip.subclip(start, end)
+            audio_clip = audio_clip.subclipped(start, end)
             logger.info(f"audio_clipped: {start:.2f}s-{end:.2f}s (range={end - start:.2f}s)")
         # 这里只需要读取旁白音频时长来决定素材视频拼接长度；后续不会再使用
         # audio_clip。读取完成后立即关闭，避免早退或异常路径泄漏文件句柄。
