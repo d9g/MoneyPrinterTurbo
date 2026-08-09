@@ -585,6 +585,11 @@ def _scan_history_tasks(limit=30):
 
 def _collect_task_summaries(limit=20):
     history_tasks = {task["task_id"]: task for task in _scan_history_tasks(limit=50)}
+    # 2026-08-09 DEBUG 老杨 20:18
+    import logging
+    logging.warning(f"[DEBUG collect] history_tasks count={len(history_tasks)}")
+    for tid, h in list(history_tasks.items())[:5]:
+        logging.warning(f"[DEBUG collect] history {tid[:12]} subject={h.get('subject','')[:40]!r} video_file={h.get('video_file','')[-30:] if h.get('video_file') else 'EMPTY'}")
 
     try:
         runtime_tasks, _ = sm.state.get_all_tasks(1, 50)
@@ -1462,6 +1467,9 @@ def _render_generation_logs(task_id):
 
 def _render_generation_task_snapshot(task_id, task):
     """根据状态存储中的快照渲染进度、失败原因或最终成片。"""
+    # 2026-08-09 DEBUG 老杨 20:18
+    import logging
+    logging.warning(f"[DEBUG snapshot] task_id={task_id[:12]} task={'NONE' if task is None else dict(task)}")
     if not task:
         st.info(tr("Generating Video"))
         _render_generation_logs(task_id)
@@ -1560,6 +1568,8 @@ def _render_generation_task_snapshot(task_id, task):
 @st.fragment(run_every=webui_task.TASK_LOG_REFRESH_INTERVAL_SECONDS)
 def _render_running_generation_task(task_id):
     """只在任务运行期间轮询；结束后切回静态结果，停止不必要的定时刷新。"""
+    import logging
+    logging.warning(f"[DEBUG running] task_id={task_id[:12]} enter")
     try:
         task = sm.state.get_task(task_id)
     except Exception as exc:
@@ -1570,6 +1580,7 @@ def _render_running_generation_task(task_id):
         return
 
     state = _normalize_task_state((task or {}).get("state"))
+    logging.warning(f"[DEBUG running] task_id={task_id[:12]} task={'NONE' if task is None else 'OK'} state={state}")
     if state in {const.TASK_STATE_COMPLETE, const.TASK_STATE_FAILED}:
         _remove_active_generation_task(task_id)
         # 完整页面脚本现在没有耗时生成逻辑，可以安全 rerun 并把结果改为静态
