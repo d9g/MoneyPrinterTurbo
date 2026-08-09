@@ -214,6 +214,7 @@ def poll_task(
     url = f"{api_base.rstrip('/')}/api/v1/tasks/{task_id}"
     start = time.time()
     last_state = None
+    last_progress = -1
     consecutive_404 = 0
     consecutive_other_err = 0
 
@@ -311,9 +312,12 @@ def poll_task(
         # 老代码用字符串 'completed'/'failed' 比较, 永远不匹配, poll 永不退出
         state = data.get("state", "unknown")
         progress = data.get("progress", 0)
-        if state != last_state:
+        # 老杨 8/9 10:50 发现: 只 state 变才 print, 但 progress 也在变 (40% → 80% → 100%)
+        # 加 progress 变化检测, 才能看出下载/拼接进度
+        if state != last_state or progress != last_progress:
             print(f"  ⏳ [{elapsed:>5.0f}s] state={state} progress={progress:.1f}%")
             last_state = state
+            last_progress = progress
 
         if state == 1:  # TASK_STATE_COMPLETE
             print(f"  ✅ [{elapsed:>5.0f}s] completed!")
@@ -352,8 +356,12 @@ def compute_signature(features: Dict[str, Any]) -> str:
     return ":".join(sig_parts)
 
 
-def process_one_song(ogg_path: Path, dry_run: bool = False) -> Optional[str]:
-    """单首歌 7 步流程"""
+def process_one_song(ogg_path: Path, dry_run: bool = False, bg: bool = False) -> Optional[str]:
+    """单首歌 7 步流程
+
+    bg=True (老杨 8/9 10:58 拍板): 提交 task 后立刻返回, 不 poll 不等
+    main.py 后台自己跑 (异步生成), mv_batch 提交完 3 首只需要 5-10 分钟
+    """
     print(f"\n{'=' * 70}")
     print(f"🎵 {ogg_path.name}")
     print(f"{'=' * 70}")
@@ -414,6 +422,14 @@ def process_one_song(ogg_path: Path, dry_run: bool = False) -> Optional[str]:
     task_id = submit_task(API_BASE, params)
     print(f"  ✅ task_id={task_id}")
 
+    # 老杨 8/9 10:58 拍板: bg 模式提交后立刻返回, 不 poll
+    if bg:
+        elapsed = time.time() - t0
+        print(f"\n  🚀 [BG 模式] 提交后不等, main.py 后台自己跑")
+        print(f"  ⏱️  本首耗时: {elapsed:.0f} 秒 ({elapsed/60:.1f} 分钟)")
+        print(f"  💡 查看进度: curl http://127.0.0.1:8080/api/v1/tasks/{task_id}")
+        return task_id  # 返回 task_id (不是 final_path), 给 caller 当成提交成功
+
     # Step 6: 轮询
     print(f"\n[Step 6/7] 轮询 ...")
     result = poll_task(API_BASE, task_id, timeout_s=7200, poll_interval=15.0)
@@ -440,6 +456,15 @@ def main():
         "--dry-run",
         action="store_true",
         help="只跑 Step 1-4, 不提交任务",
+    )
+    parser.add_argument(
+        "--bg",
+        action="store_true",
+        help="老杨 8/9 10:58 拍板: 后台 fire-and-forget 模式\n"
+             "提交 task 后不 poll, 立刻继续下一首.\n"
+             "main.py 后台自己跑, mv_batch 退出后 task 仍在生成.\n"
+             "每首歌只要 30 秒-2 分钟 (Step 1-5 提交), "
+             "3 首加起来 5-10 分钟, 不需要等 1 小时+",
     )
     parser.add_argument(
         "--songs-dir",
@@ -471,6 +496,7 @@ def main():
     for s in songs:
         print(f"   - {s.name} ({s.stat().st_size / 1024:.0f} KB)")
     print(f"   dry_run: {args.dry_run}")
+    print(f"   bg: {args.bg} (True=提交后不等, 后台生成)")
 
     results = []
     for idx, ogg in enumerate(songs, 1):
@@ -478,7 +504,7 @@ def main():
         print(f"# [{idx}/{len(songs)}] {ogg.name}")
         print(f"{'#' * 70}\n")
         try:
-            final = process_one_song(ogg, dry_run=args.dry_run)
+            final = process_one_song(ogg, dry_run=args.dry_run, bg=args.bg)
             results.append((ogg.name, final))
         except Exception as exc:
             print(f"❌ {ogg.name} 失败: {exc}")
