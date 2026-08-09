@@ -585,11 +585,6 @@ def _scan_history_tasks(limit=30):
 
 def _collect_task_summaries(limit=20):
     history_tasks = {task["task_id"]: task for task in _scan_history_tasks(limit=50)}
-    # 2026-08-09 DEBUG 老杨 20:18
-    import logging
-    logging.warning(f"[DEBUG collect] history_tasks count={len(history_tasks)}")
-    for tid, h in list(history_tasks.items())[:5]:
-        logging.warning(f"[DEBUG collect] history {tid[:12]} subject={h.get('subject','')[:40]!r} video_file={h.get('video_file','')[-30:] if h.get('video_file') else 'EMPTY'}")
 
     try:
         runtime_tasks, _ = sm.state.get_all_tasks(1, 50)
@@ -1467,10 +1462,25 @@ def _render_generation_logs(task_id):
 
 def _render_generation_task_snapshot(task_id, task):
     """根据状态存储中的快照渲染进度、失败原因或最终成片。"""
-    # 2026-08-09 DEBUG 老杨 20:18
-    import logging
-    logging.warning(f"[DEBUG snapshot] task_id={task_id[:12]} task={'NONE' if task is None else dict(task)}")
     if not task:
+        # 2026-08-09 老杨 20:18 bug 修复:
+        # 老代码: task=None 时直接 st.info("Generating Video"), 用户看到 '正在生成' 永远不消失
+        # 真根因: 老 task (Redis 状态过期被清理) 在 session current_generation_task_id 里残留
+        # 修复: task=None 时先看本地 storage/tasks/<id>/ 有没有 final-1.mp4,
+        #       有就当完成处理 (从 script.json 拿 subject/video_file)
+        task_path = os.path.join(utils.task_dir(), task_id)
+        video_file = _find_final_task_video(task_path) if os.path.isdir(task_path) else ""
+        if video_file:
+            script_data = _safe_load_task_script(task_path) or {}
+            params_data = script_data.get("params") if isinstance(script_data, dict) else {}
+            subject = (
+                params_data.get("video_subject") if isinstance(params_data, dict) else None
+                or (script_data.get("script", "")[:40] if isinstance(script_data, dict) else "")
+                or task_id
+            )
+            st.success(tr("Video Generation Completed"))
+            st.video(video_file)
+            return
         st.info(tr("Generating Video"))
         _render_generation_logs(task_id)
         return
@@ -1568,8 +1578,6 @@ def _render_generation_task_snapshot(task_id, task):
 @st.fragment(run_every=webui_task.TASK_LOG_REFRESH_INTERVAL_SECONDS)
 def _render_running_generation_task(task_id):
     """只在任务运行期间轮询；结束后切回静态结果，停止不必要的定时刷新。"""
-    import logging
-    logging.warning(f"[DEBUG running] task_id={task_id[:12]} enter")
     try:
         task = sm.state.get_task(task_id)
     except Exception as exc:
@@ -1579,8 +1587,18 @@ def _render_running_generation_task(task_id):
         st.error(tr("Video Generation Failed"))
         return
 
+    # 2026-08-09 老杨 20:18 bug 修复:
+    # 老代码: task=None 时直接 _render_generation_task_snapshot(task_id, None)
+    #         -> snapshot 显示 'Generating Video' + fragment 每 2s 轮询
+    # -> 用户看到 '正在生成视频请稍候' 永远不消失
+    # 真根因: 老 task (Redis 状态过期被清理) 在 session current_generation_task_id 里残留
+    # 修复: task=None 时调 snapshot 那里加了 history fallback (看 final-1.mp4)
+    if task is None:
+        _remove_active_generation_task(task_id)
+        _render_generation_task_snapshot(task_id, None)
+        return
+
     state = _normalize_task_state((task or {}).get("state"))
-    logging.warning(f"[DEBUG running] task_id={task_id[:12]} task={'NONE' if task is None else 'OK'} state={state}")
     if state in {const.TASK_STATE_COMPLETE, const.TASK_STATE_FAILED}:
         _remove_active_generation_task(task_id)
         # 完整页面脚本现在没有耗时生成逻辑，可以安全 rerun 并把结果改为静态
@@ -1609,6 +1627,14 @@ def _render_current_generation_task():
     if state in {const.TASK_STATE_COMPLETE, const.TASK_STATE_FAILED}:
         _remove_active_generation_task(task_id)
         _render_generation_task_snapshot(task_id, task)
+        return
+
+    # 2026-08-09 老杨 20:18 bug 修复:
+    # 老代码: task=None 时走 _render_running_generation_task -> fragment 反复轮询
+    # 修复: task=None 也调 snapshot (那里加了 history fallback 看 final-1.mp4)
+    if task is None:
+        _remove_active_generation_task(task_id)
+        _render_generation_task_snapshot(task_id, None)
         return
 
     _render_running_generation_task(task_id)
