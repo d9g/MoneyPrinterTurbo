@@ -4,6 +4,7 @@ import re
 import socket
 import threading
 import time
+from pathlib import Path
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from functools import partial
 from os import path
@@ -1131,8 +1132,10 @@ def _run_pipeline(
     stop_at: str = "video",
     voice_preview: dict | None = None,
 ):
-    logger.info(f"start task: {task_id}, stop_at: {stop_at}")
+    # 老杨 8/9 11:01 拍板: 加阶段日志, 让你能直接看 main.py 端进度
+    logger.info(f"🎬 [_run_pipeline] START task={task_id} stop_at={stop_at} subject={params.video_subject[:50]}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
+    logger.info(f"  [5%] 预检完成")
 
     # 只有完整成片流程需要视频配乐供应商。尽早阻止缺少 Key 的完整任务，避免
     # 先消耗 LLM、TTS 和素材服务额度；中间产物接口仍可独立使用。
@@ -1183,6 +1186,7 @@ def _run_pipeline(
         )
         return _mark_task_failed(task_id, "script", error)
 
+    logger.info(f"  [10%] 文案生成完成 (skip={stop_at == 'script'}, next: 配音)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=10)
 
     if stop_at == "script":
@@ -1210,6 +1214,7 @@ def _run_pipeline(
         )
         return {"script": video_script, "terms": video_terms}
 
+    logger.info(f"  [20%] 关键词提取完成 (terms={len(video_terms)} 个)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=20)
 
     # 3. Generate audio
@@ -1226,6 +1231,7 @@ def _run_pipeline(
             "failed to prepare narration audio",
         )
 
+    logger.info(f"  [30%] 配音/TTS 完成 (next: 字幕)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=30)
 
     if stop_at == "audio":
@@ -1251,6 +1257,7 @@ def _run_pipeline(
         )
         return {"subtitle_path": subtitle_path}
 
+    logger.info(f"  [40%] 字幕生成完成 (next: 素材下载)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=40)
 
     # 5. Get video materials
@@ -1273,6 +1280,7 @@ def _run_pipeline(
         )
         return {"materials": downloaded_videos}
 
+    logger.info(f"  [50%] 素材下载完成 (count={len(downloaded_videos)}, next: 拼接)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=50)
 
     # 仅完整视频生成流程才需要处理视频拼接模式；
@@ -1297,6 +1305,11 @@ def _run_pipeline(
             "failed to generate final video",
         )
 
+    for fp in final_video_paths:
+        size_mb = Path(fp).stat().st_size / 1024 / 1024 if Path(fp).exists() else 0
+        logger.success(
+            f"  [100%] 🎥 final video: {fp} ({size_mb:.1f} MB)"
+        )
     logger.success(
         f"task {task_id} finished, generated {len(final_video_paths)} videos."
     )
