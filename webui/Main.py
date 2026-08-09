@@ -824,7 +824,14 @@ def _render_task_table(filtered_tasks, key_prefix):
                         help=play_label,
                         disabled=not has_video,
                     ):
-                        _open_task_video(task["video_file"])
+                        # 2026-08-09 老杨 19:19 拍板 B 方案: 跳转任务详情页 (那里已有 st.video)
+                        # 之前调 _open_task_video -> 服务器端 xdg-open -> 远端无桌面失败
+                        # Streamlit popover 没 API 直接 close, 老杨点 popover 外关掉即可
+                        st.session_state["current_generation_task_id"] = task_id
+                        st.session_state["task_manager_popover_nonce"] = (
+                            st.session_state.get("task_manager_popover_nonce", 0) + 1
+                        )
+                        st.rerun(scope="app")
 
                 with action_cols[2]:
                     open_label = tr("Open Task Folder")
