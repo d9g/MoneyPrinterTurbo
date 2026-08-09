@@ -246,7 +246,12 @@ def poll_task(
                 continue
 
             resp.raise_for_status()
-            data = resp.json()
+            envelope = resp.json()
+            # API envelope: {"status":200, "message":"success", "data":{...}}
+            # 老杨 8/9 09:11 发现: 老代码直接 envelope.get('state') 永远 None (state 在 envelope['data'] 里)
+            data = envelope.get("data") if isinstance(envelope, dict) else None
+            if not isinstance(data, dict):
+                raise RuntimeError(f"unexpected API response shape: {envelope}")
             # 成功: 重置所有错误计数
             if consecutive_404 > 0 or consecutive_other_err > 0:
                 print(f"  ✅ [{elapsed:>5.0f}s] 恢复成功 (前累计 404={consecutive_404}, err={consecutive_other_err})")
