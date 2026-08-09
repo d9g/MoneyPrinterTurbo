@@ -2,8 +2,14 @@
 """
 mv_batch_playlist.py — 老杨 8/8 23:51 拍板
 
+老杨 8/9 10:30 拍板: MV 模式回退到基础 video 生成
+- 一首歌 = 一个完整视频 (不切分段落)
+- LLM 只分析意境 + 关键词, Pexels 按关键词搜视频
+- 字幕用 LRC 歌词
+- 不用 use_segmented_concat / combine_videos_segmented
+
 扫 /root/MoneyPrinterTurbo/resource/songs/*_L.ogg 目录,
-对每首歌跑 7 步流程 (LLM 分析 + 歌词字幕 + 按段落拼接),
+对每首歌跑 7 步流程 (LLM 分析 + 歌词字幕 + 完整视频拼接),
 串行提交到 main.py (http://127.0.0.1:8080), 输出 final-1.mp4 路径。
 
 老杨 23:48 设计要求:
@@ -12,14 +18,11 @@ mv_batch_playlist.py — 老杨 8/8 23:51 拍板
 - 视频转场随机 (shuffle / fade_in / slide_in / zoom_in / zoom_out)
 - 不用视频文案 (video_script=""), 直接用歌词字幕
 
-老杨 23:51 补充:
-- MV 不用视频文案, 直接走歌词字幕
-
 对每首歌 7 步:
 Step 1: analyze_audio() → features (BPM/调性/sections/chorus)
 Step 2: parse_lrc() → [{timestamp_ms, text, end_timestamp_ms}]
-Step 3: MvPlanner.build(features, lyrics) → plan (意境/关键词/video_prompts)
-Step 4: 构造 VideoParams (无BGM + LRC字幕 + 随机转场 + 按段落拼接)
+Step 3: MvPlanner.build(features, lyrics, audio_id) → plan (意境/关键词, 写库)
+Step 4: 构造 VideoParams (无BGM + LRC字幕 + 随机转场 + OGG音频 + LLM关键词搜视频)
 Step 5: POST /videos 提交 (params dict) → main.py:8080
 Step 6: 轮询 /tasks/{id} 直到 completed
 Step 7: 输出 final-1.mp4 路径
@@ -84,8 +87,12 @@ def parse_lyrics(lrc_path: Path) -> str:
     return "\n".join(text_lines), parsed
 
 
-def build_plan(features: Dict[str, Any], lyrics_text: str, signature: str) -> Dict[str, Any]:
-    """Step 3: LLM 出方案 (意境/关键词/视频prompts)"""
+def build_plan(features: Dict[str, Any], lyrics_text: str, signature: str, audio_id: str, artist: Optional[str] = None, title: Optional[str] = None) -> Dict[str, Any]:
+    """Step 3: LLM 出方案 (意境 + 中英关键词 + 调色)
+    
+    老杨 8/9 10:30 拍板: 不再输出分段时间轴, theme_keywords_en 给 Pexels 搜视频
+    老杨 8/9 10:32 拍板: 传 audio_id 让 plan 写库 (P1-5 修复)
+    """
     from app.services.mv_planner import MvPlanner
 
     planner = MvPlanner(db_path=DB_PATH)
@@ -94,6 +101,9 @@ def build_plan(features: Dict[str, Any], lyrics_text: str, signature: str) -> Di
         lyrics=lyrics_text,
         song_signature=signature,
         duration_seconds=features["duration_seconds"],
+        audio_id=audio_id,
+        artist=artist,
+        title=title,
     )
     return plan
 
@@ -105,18 +115,22 @@ def build_params(
     lrc_path: Path,
     transition: str,
 ) -> Dict[str, Any]:
-    """Step 4: 构造 VideoParams dict"""
-    # 老杨 8/8 schema 拍板:
+    """Step 4: 构造 VideoParams dict
+    
+    老杨 8/9 10:30 拍板: 基础 video 生成 (不切分)
+    - video_terms = theme_keywords_en (LLM 产出的英文关键词)
+    - custom_audio_file = OGG (替换 TTS)
+    - lrc_file = LRC (字幕)
+    - 无 use_segmented_concat / mv_plan / mv_features
+    """
+    # 老杨 8/8 schema 拍板 (基础版):
     # - mood_summary (中文意境描述)
     # - theme_keywords_en (英文搜索词 -> pexels 用)
     # - theme_keywords_cn (中文意境词)
     # - color_palette (调色)
-    # - video_prompts (按段落视频 prompt)
     search_terms = plan.get("theme_keywords_en", []) or plan.get("search_terms", [])
     if isinstance(search_terms, str):
         search_terms = [t.strip() for t in search_terms.split(",") if t.strip()]
-
-    video_prompts = plan.get("video_prompts", []) or []
 
     params = {
         # 基础
@@ -145,12 +159,8 @@ def build_params(
         "text_background_color": True,
         "stroke_color": "#000000",
         "stroke_width": 1.5,
-        # 自定义音频 (OGG)
+        # 自定义音频 (OGG) — 完整一首歌
         "custom_audio_file": str(ogg_path),
-        # 老杨 8/8 21:31: 按段落拼接
-        "use_segmented_concat": True,
-        "mv_plan": plan,
-        "mv_features": features,
         # 性能
         "n_threads": 2,
         "paragraph_number": 1,
@@ -374,11 +384,16 @@ def process_one_song(ogg_path: Path, dry_run: bool = False) -> Optional[str]:
     # Step 3: LLM 出方案
     print("\n[Step 3/7] MvPlanner.build() (LLM) ...")
     signature = compute_signature(features)
-    plan = build_plan(features, lyrics_text, signature)
+    # 老杨 8/9 10:32 拍板: audio_id 用 ogg 文件 path hash (同歌同一 id, 重跑写库只增 version 不重复)
+    import hashlib
+    audio_id = "mva-" + hashlib.md5(str(ogg_path).encode()).hexdigest()[:12]
+    artist = id3_meta.artist if id3_meta else None
+    title = id3_meta.title if id3_meta else None
+    plan = build_plan(features, lyrics_text, signature, audio_id, artist=artist, title=title)
     print(f"  ✅ plan source={plan.get('_source')}, latency={plan.get('_latency_ms', 0)}ms")
     print(f"  🎨 mood_summary: {(plan.get('mood_summary') or plan.get('mood') or '')[:100]}")
     print(f"  🔑 keywords (en): {plan.get('theme_keywords_en', [])[:5]}")
-    print(f"  🎬 video_prompts: {len(plan.get('video_prompts', []))} 段")
+    print(f"  💾 audio_id={audio_id}, version={plan.get('_version', 0)}")
 
     # Step 4: 构造 params
     transition = random.choice(TRANSITION_MODES)
@@ -386,7 +401,8 @@ def process_one_song(ogg_path: Path, dry_run: bool = False) -> Optional[str]:
     params = build_params(plan, features, ogg_path, lrc_path, transition)
     print(f"  ✅ bgm_type={params['bgm_type']!r} (空=无BGM)")
     print(f"  ✅ lrc_file={Path(params['lrc_file']).name}")
-    print(f"  ✅ use_segmented_concat={params['use_segmented_concat']}")
+    print(f"  ✅ video_terms={len(params['video_terms'])} 个 (Pexels 搜索词)")
+    print(f"  ✅ custom_audio_file={Path(params['custom_audio_file']).name}")
 
     if dry_run:
         print(f"\n[DRY-RUN] 跳过 Step 5-7")

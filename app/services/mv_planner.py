@@ -119,15 +119,7 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
         "theme_keywords_cn": keywords + (["歌词"] if lyrics else ["音乐"]),
         "theme_keywords_en": _translate_keywords_to_en(keywords) + (["lyrics"] if lyrics else ["music"]),
         "color_palette": ["暖金琥珀", "暮色蓝灰", "柔光奶白"],
-        "video_prompts": [
-            {
-                "section_index": i,
-                "label": sections[i].get("intensity", "medium") if i < len(sections) else f"段落{i+1}",
-                "prompt": f"{keywords[0]} {tempo_class} cinematic shot",
-                "style": f"{keywords[0]} cinematic, soft natural light",
-            }
-            for i in range(n)
-        ],
+        # 老杨 8/9 10:30 拍板: 不再生成 video_prompts 分段数组
         "transition_style": "fade",
         "subtitle_style": "bottom",
         "_source": "fallback_rule",
@@ -140,6 +132,10 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
 _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 你的任务: 把音频特征 + 歌词翻译成具体的 MV 拍摄意境方案, 让摄影师/剪辑师能直接照做.
 
+老杨 8/9 10:30 拍板: MV 模式简化为基础 video 生成
+- 不再要求分段时间轴 (video_prompts 分段)
+- LLM 只输出意境 + 关键词 + 调色, 关键词会被 Pexels/Pixabay/Coverr 用于搜索视频
+
 # 严格输出要求 (按这个 JSON Schema)
 
 ```json
@@ -148,10 +144,6 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
   "theme_keywords_cn": ["中文关键词1", "中文关键词2", "中文关键词3", "中文关键词4", "中文关键词5"],
   "theme_keywords_en": ["English Keyword 1", "English Keyword 2", "English Keyword 3", "English Keyword 4", "English Keyword 5"],
   "color_palette": ["颜色名1", "颜色名2", "颜色名3", "颜色名4", "颜色名5"],
-  "video_prompts": [
-    {"section_index": 0, "label": "前奏", "prompt": "english keyword for pexels", "style": "中文风格描述"},
-    {"section_index": 1, "label": "主歌A", "prompt": "english keyword", "style": "中文风格描述"}
-  ],
   "transition_style": "具体方案描述 (30字内)",
   "subtitle_style": "字幕样式描述 (50字内)"
 }
@@ -160,13 +152,6 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 # 重要约束
 - 所有字段必须存在, 不能遗漏
 - color_palette 是字符串数组 (中文颜色名), 不是对象
-- video_prompts 是数组, 每个元素必须含 section_index/label/prompt/style 四个字段
-- **video_prompts 段数: 根据歌词情节自然划分 (老杨 8/9 08:19 拍板).**
-  - **不要硬凑 6 段**. 歌曲有几句歌词、几个情绪转折, 就出几段.
-  - 建议参考: 叙事/抒情 歌曲 3-5 段, 完整故事歌曲 6-10 段, 短歌/Intro-Outro 1-3 段.
-  - 数组长度最少 1 段, 最多 12 段 (超过会被裁剪).
-  - 每段对应歌词的一个情节/情绪/场景, 不重复不重叠.
-  - section_index 从 0 连续递增到 N-1, 不能跳过.
 - **theme_keywords_cn 是中文关键词数组，5-10 个, 每个 2-4 字中文**
 - **theme_keywords_en 是对应英文 Pexels 搜索关键词，5-10 个, 每个 1-3 词英文（用于素材库检索, 必须返回字符串数组）**
 - 不要包含 hex 颜色代码, 只给中文颜色名
@@ -217,10 +202,8 @@ _USER_PROMPT_EVOLUTION = """# 进化模式 (Diana 3.3)
 2. 针对以下方面做增量优化:
    - 更精准的意境表达 (结合历史脉络)
    - 更丰富的关键词
-   - 更贴合歌词的段落切分
-   - 更符合视频拍摄建议的 prompts
 3. 如果你认为上次已经足够好, 可以只做微调
-4. 输出必须包含字段: mood_summary, theme_keywords_cn, theme_keywords_en, color_palette, video_prompts, transition_style, subtitle_style
+4. 输出必须包含字段: mood_summary, theme_keywords_cn, theme_keywords_en, color_palette, transition_style, subtitle_style
 
 请输出最新版本 (JSON).
 """
@@ -543,26 +526,13 @@ class MvPlanner:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
             raise MvPlannerError(f"LLM 输出非 JSON: {exc}; raw={text[:200]}") from exc
-        required = {"mood_summary", "theme_keywords_cn", "theme_keywords_en", "video_prompts", "transition_style", "subtitle_style"}
+        required = {"mood_summary", "theme_keywords_cn", "theme_keywords_en", "transition_style", "subtitle_style"}
         missing = required - set(data.keys())
         if missing:
             raise MvPlannerError(f"LLM 输出缺字段: {missing}")
-        # 老杨 8/9 08:19 拍板: 动态段数 - 限制范围 [1, 12], 超过裁剪
-        prompts = data.get("video_prompts") or []
-        if not isinstance(prompts, list):
-            raise MvPlannerError(f"video_prompts 不是数组: {type(prompts)}")
-        if len(prompts) == 0:
-            raise MvPlannerError("video_prompts 为空")
-        if len(prompts) > 12:
-            logger.warning(
-                f"video_prompts {len(prompts)} 段超 12 上限, 裁剪到 12"
-            )
-            prompts = prompts[:12]
-        # 重排 section_index 确保连续 0..N-1
-        for i, p in enumerate(prompts):
-            if isinstance(p, dict):
-                p["section_index"] = i
-        data["video_prompts"] = prompts
+        # 老杨 8/9 10:30 拍板: 不再要求分段时间轴 (video_prompts)
+        # theme_keywords_en 是 Pexels 搜索关键词, theme_keywords_cn 是中文意境
+        # 不需要再校验 video_prompts 数组
         return data
 
 
