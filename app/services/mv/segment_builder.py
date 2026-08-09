@@ -69,8 +69,9 @@ def build_segments(
     n_sections = len(sections)
     n_prompts = len(prompts_by_idx)
 
-    # 决定总段数 = min(sections 数量, prompts 数量, 默认 6)
-    total = min(n_sections, n_prompts) if n_sections > 0 else min(n_prompts, 6)
+    # 决定总段数 = min(sections 数量, prompts 数量, 上限 12)
+    # 老杨 8/9 09:11 拍板: mv_planner 改动态段数, 这里跟改, 不再硬限 6
+    total = min(n_sections, n_prompts) if n_sections > 0 else min(n_prompts, 12)
 
     if total == 0:
         # 没有任何 sections, 用 prompts 数量构造 (无 start/end 精确值)
