@@ -603,8 +603,24 @@ def _collect_task_summaries(limit=20):
         video_file = (
             video_files[0] if video_files else history_task.get("video_file", "")
         )
+        # 2026-08-09 老杨 20:03 bug 修复:
+        # 老代码 task.get("video_subject") 只拿 Redis 顶层 video_subject 字段
+        # mv_batch 提交的 task 只存 params dict (params.video_subject 嵌套),
+        # webui 提交的 task 才顶层 video_subject.
+        # -> mv_batch 的 task 在任务管理里显示 subject='-' (空)
+        # -> Play 按钮 disabled (因为 video_file 也是空 + history_task 补不上)
+        # -> 用户看到 '正在生成视频请稍候' (因为 disabled Play 不跳详情, 但 session 还记得 current_generation_task_id)
+        # 修复: 额外从 params 拿, 兼容两种提交路径
+        params_data = task.get("params") or {}
+        if isinstance(params_data, str):
+            try:
+                import json as _json
+                params_data = _json.loads(params_data)
+            except Exception:
+                params_data = {}
         subject = (
             task.get("video_subject")
+            or params_data.get("video_subject") if isinstance(params_data, dict) else None
             or history_task.get("subject")
             or (task.get("script", "")[:40] if task.get("script") else "")
             or task_id
@@ -626,10 +642,19 @@ def _collect_task_summaries(limit=20):
 
     for task_id, active_task in _active_generation_tasks().items():
         history_task = history_tasks.get(task_id, {})
-        if history_task and _task_state_filter_key(history_task) in {
-            "complete",
-            "failed",
-        }:
+        # 2026-08-09 老杨 20:03 bug 修复:
+        # 老代码只跳 complete/failed 状态的任务, 但 mv_batch 提交的 task
+        # (老代码) 在 history 里 state=None, 没有 final-1.mp4 -> video_file=空
+        # (因为 P2-7 修复前 script.json 没写 final-1.mp4 路径).
+        # 实际上 mv_batch 的 task 有 final-1.mp4 + Redis state=1, 但 history scan 不读这些.
+        # -> active 列表会覆盖成 state=PROCESSING + video_file=空
+        # -> 用户看到 '正在生成视频请稍候' 但 task 已完成
+        # 修复: 如果 history_task 有 video_file (final-1.mp4 实际存在), 不允许 active 覆盖
+        history_video = history_task.get("video_file") if history_task else ""
+        if history_task and (
+            _task_state_filter_key(history_task) in {"complete", "failed"}
+            or (history_video and os.path.isfile(history_video))
+        ):
             # 会话中的 active 标记只负责覆盖任务刚提交到状态存储前的极短窗口。
             # 后台任务结束后必须以真实终态为准，不能把失败任务重新显示为生成中。
             continue
