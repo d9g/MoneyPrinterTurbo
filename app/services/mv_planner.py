@@ -95,7 +95,21 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
     key = key_obj.get("key", "C") if isinstance(key_obj, dict) else "C"
     keywords = _FALLBACK_TEMPO_MOOD.get(tempo_class, ["节奏"])
     sections = audio_features.get("sections", [])
-    n = len(sections) if sections else 6
+    duration = float(audio_features.get("duration") or 0)
+    lyrics_lines = len([l for l in (lyrics or "").splitlines() if l.strip()])
+
+    # 老杨 8/9 08:19 拍板: 动态段数, 不硬凑 6 段
+    # 规则: 音频段落存在用其长度, 否则按 ~30 秒/段估算, 同时考虑歌词行数 (每 6-8 行一段)
+    if sections:
+        n = len(sections)
+    elif duration > 0:
+        # ~30 秒一段 (4 分钟歌 ~8 段), 最少 2 段, 最多 10 段
+        n = max(2, min(10, round(duration / 30)))
+    elif lyrics_lines > 0:
+        # 每 6-8 行歌词一段
+        n = max(2, min(8, round(lyrics_lines / 7)))
+    else:
+        n = 4  # 兑底
 
     return {
         "mood_summary": (
@@ -147,6 +161,12 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 - 所有字段必须存在, 不能遗漏
 - color_palette 是字符串数组 (中文颜色名), 不是对象
 - video_prompts 是数组, 每个元素必须含 section_index/label/prompt/style 四个字段
+- **video_prompts 段数: 根据歌词情节自然划分 (老杨 8/9 08:19 拍板).**
+  - **不要硬凑 6 段**. 歌曲有几句歌词、几个情绪转折, 就出几段.
+  - 建议参考: 叙事/抒情 歌曲 3-5 段, 完整故事歌曲 6-10 段, 短歌/Intro-Outro 1-3 段.
+  - 数组长度最少 1 段, 最多 12 段 (超过会被裁剪).
+  - 每段对应歌词的一个情节/情绪/场景, 不重复不重叠.
+  - section_index 从 0 连续递增到 N-1, 不能跳过.
 - **theme_keywords_cn 是中文关键词数组，5-10 个, 每个 2-4 字中文**
 - **theme_keywords_en 是对应英文 Pexels 搜索关键词，5-10 个, 每个 1-3 词英文（用于素材库检索, 必须返回字符串数组）**
 - 不要包含 hex 颜色代码, 只给中文颜色名
@@ -527,6 +547,22 @@ class MvPlanner:
         missing = required - set(data.keys())
         if missing:
             raise MvPlannerError(f"LLM 输出缺字段: {missing}")
+        # 老杨 8/9 08:19 拍板: 动态段数 - 限制范围 [1, 12], 超过裁剪
+        prompts = data.get("video_prompts") or []
+        if not isinstance(prompts, list):
+            raise MvPlannerError(f"video_prompts 不是数组: {type(prompts)}")
+        if len(prompts) == 0:
+            raise MvPlannerError("video_prompts 为空")
+        if len(prompts) > 12:
+            logger.warning(
+                f"video_prompts {len(prompts)} 段超 12 上限, 裁剪到 12"
+            )
+            prompts = prompts[:12]
+        # 重排 section_index 确保连续 0..N-1
+        for i, p in enumerate(prompts):
+            if isinstance(p, dict):
+                p["section_index"] = i
+        data["video_prompts"] = prompts
         return data
 
 
