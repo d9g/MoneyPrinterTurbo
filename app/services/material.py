@@ -2,6 +2,7 @@ import os
 import random
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, List, Optional
 from urllib.parse import quote_plus, urlencode, urlsplit, urlunsplit
@@ -976,14 +977,19 @@ def download_videos(
     if concat_mode_value == VideoConcatMode.random.value:
         random.shuffle(valid_video_items)
 
+    # 老杨 8/9 11:01 拍板: 加下载进度总览 (每 5 个 / 跨阶打 1 条, 不刷屏)
     total_duration = 0.0
-    for item in valid_video_items:
+    download_start_t = time.time()
+    for idx, item in enumerate(valid_video_items, 1):
         try:
             source_info = item.source_info if isinstance(item.source_info, dict) else {}
-            logger.info(
-                f"downloading {item.provider} video: "
-                f"asset_id={source_info.get('asset_id') or 'unknown'}"
-            )
+            # 压缩静默 spam: 每 5 个 / 首尾 打详细日志, 中间只打进度汇总
+            if idx == 1 or idx % 5 == 0 or idx == len(valid_video_items):
+                logger.info(
+                    f"[素材下载 {idx}/{len(valid_video_items)}] {item.provider} "
+                    f"asset_id={source_info.get('asset_id') or 'unknown'} "
+                    f"acc_duration={total_duration:.1f}s/{audio_duration:.1f}s"
+                )
             saved_video_path = save_video(
                 video_url=item.url, save_dir=material_directory
             )
@@ -1005,8 +1011,12 @@ def download_videos(
                 seconds = min(max_clip_duration, item.duration)
                 total_duration += seconds
                 if total_duration > audio_duration:
+                    elapsed = time.time() - download_start_t
                     logger.info(
-                        f"total duration of downloaded videos: {total_duration} seconds, skip downloading more"
+                        f"[素材下载完成] {len(video_paths)} videos "
+                        f"total_duration={total_duration:.1f}s "
+                        f"audio={audio_duration:.1f}s "
+                        f"elapsed={elapsed:.1f}s"
                     )
                     break
         except Exception as e:
