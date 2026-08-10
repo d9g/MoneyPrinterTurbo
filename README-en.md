@@ -18,6 +18,51 @@ English | [简体中文](README.md) | [Releases](https://github.com/harry0703/Mo
 
 </div>
 
+## ⚠️ Audio Copyright Disclaimer (2026-08-10)
+
+### What This Tool Is
+
+MoneyPrinterTurbo + MV v2.0 audio analyzer is an **open-source AI video generation tool**. The music analysis module under `app/services/audio/` extracts metadata (BPM, key, sections, chorus detection) and is provided for **personal creation and learning only**.
+
+### Permitted Uses
+
+✅ Your **own original music** (CC0 / self-made / public domain)
+✅ Music you have **written authorization** for (including QQ Music, NetEase Music commercial licenses)
+✅ **Royalty-free** music explicitly labeled for commercial use (e.g. Pixabay Music, Free Music Archive)
+✅ Personal, non-commercial **study, research, or fair use** of others' works
+
+### Prohibited Uses
+
+❌ Uploading **unauthorized VIP / encrypted audio** for any commercial or public purpose
+❌ **Bypassing** encryption protection of QQ Music, NetEase, Kugou, or similar platforms
+ - This project **does not provide server-side decryption** (technically infeasible + legal risk)
+ - For VIP music analysis, use [UnlockMusic](https://git.unlock-music.dev/) to **decrypt locally** and accept full legal liability
+❌ Generating **MVs / videos containing others' copyrighted music** for:
+   - Public platforms (Douyin, WeChat Channels, Bilibili, YouTube, etc.)
+   - Commercial ads / paid content / client projects
+   - AI model training / redistribution / bulk generation
+
+### Liability
+
+The project developers (MiniMax / OpenClaw Agent and contributors):
+
+1. **Do not store or distribute** any audio uploaded by users
+2. **Do not participate** in any platform encryption bypass
+3. Bear **no responsibility** for the copyright legality of user content
+4. Bear **no responsibility** for copyright disputes, lawsuits, or damages arising from tool usage
+
+Users bear **full legal liability** for violations of the above terms.
+
+### Fair Use References
+
+- China: Copyright Law Article 24
+- USA: 17 U.S.C. § 107 (Fair Use four factors)
+- EU: InfoSoc Directive Article 5(3)
+
+**Use of this tool constitutes acceptance of this disclaimer.**
+
+---
+
 ## Screenshots 🖥️
 
 <h4 align="center">WebUI</h4>

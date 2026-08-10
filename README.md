@@ -18,6 +18,57 @@
 
 </div>
 
+## ⚠️ 音频版权免责声明（2026-08-10 老杨拍板）
+
+### 一、工具定位
+
+本项目（MoneyPrinterTurbo + MV v2.0 音频分析模块）是一个**开源 AI 视频生成工具**，位于 `app/services/audio/` 的“音乐特征分析”模块提供 BPM、调式、段落、高潮段检测等元数据提取功能，**仅供个人创作与学习使用**。
+
+### 二、合法使用场景
+
+✅ 用户上传**自有原创音乐**（CC0 / 自制 / 公域）
+✅ 用户上传**已获书面授权**的商业音乐（含 QQ 音乐、网易云音乐商用授权）
+✅ 用户上传**明确标注可商用的免版权音乐**（如 Pixabay Music、Free Music Archive）
+✅ 个人非营利**学习、研究、合理使用**他人作品
+
+### 三、禁止行为
+
+❌ 上传**未经授权的 VIP / 加密音频**用于任何商业或公开用途
+❌ **绕过** QQ 音乐 / 网易云 / 酷狗等平台的加密保护机制
+ - 本项目**不提供服务端解密功能**（技术不可行 + 法律高风险）
+ - 如需分析 VIP 音乐，请使用 [UnlockMusic](https://git.unlock-music.dev/) 等开源项目**自行本地解密**，**自行承担法律责任**
+❌ 用本工具生成**包含他人版权音乐的 MV / 视频**，用于：
+   - 抖音 / 视频号 / B站 / YouTube 等公开平台引流
+   - 商业广告 / 付费内容 / 接单项目
+   - 训练 AI 模型 / 二次分发 / 批量生产
+
+### 四、免责声明
+
+本项目开发者（MiniMax / OpenClaw Agent 及开源贡献者）：
+
+1. **不存储、不传播**任何用户上传的音频文件
+2. **不参与**任何平台的加密绕过行为
+3. **不对**用户上传内容的版权合法性承担责任
+4. **不对**用户使用本工具产生的版权纠纷、诉讼、损失承担责任
+
+用户**自行承担**因违反上述条款而产生的全部法律责任。
+
+### 五、合理使用参考
+
+- 中国《著作权法》第 24 条
+- 美国 17 U.S.C. § 107（Fair Use 四要素）
+- 欧盟 InfoSoc Directive 第 5(3) 条
+
+**使用本工具即表示您已阅读、理解并接受本声明。**
+
+---
+
+## ⚠️ Audio Copyright Disclaimer (English)
+
+This project does **not** provide server-side decryption, storage, or distribution of copyrighted audio. Users must only upload audio they have legal rights to (CC0, self-made, or licensed). VIP / encrypted audio from QQ Music, NetEase, etc. must be decrypted locally via [UnlockMusic](https://git.unlock-music.dev/) before uploading. See [README-en.md](README-en.md) for details.
+
+---
+
 ## 界面预览 🖥️
 
 <h4 align="center">WebUI</h4>
