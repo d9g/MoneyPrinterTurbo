@@ -21,6 +21,22 @@ from .preprocess import preprocess_audio
 # 支持的音频格式
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma"}
 
+# 加密格式 (2026-08-10 老杨拍板: 不提供服务端解密, 友好报错引导本地解密)
+ENCRYPTED_EXTENSIONS = {
+    ".ncm",       # 网易云音乐
+    ".qmc",       # QQ 音乐
+    ".qmc0",      # QQ 音乐 (老版本)
+    ".qmcflac",   # QQ 音乐 FLAC 加密
+    ".qmc3",      # QQ 音乐 v3
+    ".mflac",     # QQ 桌面客户端 FLAC 加密
+    ".mgg",       # QQ 桌面客户端 v3 加密
+    ".kgm",       # 酷狗音乐
+    ".kwm",       # 酷我音乐
+    ".xm",        # 虾米音乐
+}
+
+_UNLOCK_MUSIC_URL = "https://git.unlock-music.dev/"
+
 # Diana 4.2: 缓存层 (文件 hash -> AudioFeatures)
 _analysis_cache: Dict[str, AudioFeatures] = {}
 
@@ -42,10 +58,21 @@ def _file_hash(path: str) -> str:
 
 
 def _validate_path(path: str) -> None:
-    """验证文件存在 + 格式支持"""
+    """验证文件存在 + 格式支持
+
+    2026-08-10 老杨拍板:
+      - 加密格式 (.ncm/.qmc/.mgg 等) 友好报错, 引导用户本地解密后重新上传
+      - 本工具不提供、不参与任何平台加密机制的绕过
+    """
     p = Path(path)
     if not p.exists():
         raise AudioAnalyzerError(f"文件不存在: {path}")
+    if p.suffix.lower() in ENCRYPTED_EXTENSIONS:
+        raise AudioAnalyzerError(
+            f"检测到加密音频格式 {p.suffix}。本工具不提供服务端解密功能（技术不可行 + 法律高风险）。"
+            f"请使用开源项目 UnlockMusic ({_UNLOCK_MUSIC_URL}) 在本地解密后重新上传明文音频。"
+            f"详见项目根目录 README.md 的「音频版权免责声明」。"
+        )
     if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
         raise AudioAnalyzerError(
             f"格式不支持: {p.suffix} (支持: {', '.join(SUPPORTED_EXTENSIONS)})"

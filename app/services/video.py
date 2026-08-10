@@ -919,7 +919,12 @@ def combine_videos(
             video_duration += clip_duration_saved
             
         except Exception as e:
-            logger.error(f"failed to process clip: {str(e)}")
+            # 2026-08-09 老杨 14:11 拍板: 加 traceback, 看到底是 random/choice 还是别的错
+            import traceback as _tb
+            logger.error(
+                f"failed to process clip: {type(e).__name__}: {e}\n"
+                f"{_tb.format_exc()}"
+            )
     
     # loop processed clips until the video duration covers the audio duration and the small safety margin.
     if video_duration < required_video_duration:

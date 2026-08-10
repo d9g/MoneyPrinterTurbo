@@ -3885,10 +3885,29 @@ def _render_audio_analysis_panel(uploaded_audio_file):
     """老杨 8/8 拍板的 UI: 上传音频后点按钮 → 弹窗里看分析结果 + 一键应用
 
     老杨 8/8 13:34 拍板: 改用 st.dialog 弹窗代替 expander, 宽屏看分析结果
+
+    2026-08-10 老杨拍板: 首次上传弹版权声明 (st.session_state 记忆, 不再每次打断)
     """
     if uploaded_audio_file is None:
         st.caption(tr("Audio Analysis No Audio"))
         return
+
+    # 2026-08-10 老杨拍板: 首次上传弹版权声明, session_state 记忆
+    _COPYRIGHT_ACK_KEY = "_mpt_audio_copyright_acknowledged"
+    if not st.session_state.get(_COPYRIGHT_ACK_KEY, False):
+        with st.container(border=True):
+            st.markdown("##### ⚠️ 音频版权与使用声明")
+            st.caption(
+                "本工具仅分析您自行上传的**明文音频**（不提供解密、存储、传播）。"
+                "请确保您对上传的音频享有合法使用权（CC0 / 自制 / 已获授权）。\n\n"
+                "**VIP / 加密音乐** 请使用 [UnlockMusic](https://git.unlock-music.dev/) "
+                "在本地解密后重新上传明文文件。\n\n"
+                "严禁将分析结果用于侵犯第三方版权的内容生成。"
+            )
+            if st.button("✅ 我已阅读并接受上述声明", key="audio_copyright_ack_btn"):
+                st.session_state[_COPYRIGHT_ACK_KEY] = True
+                st.rerun()
+            st.stop()  # 未勾选不进入下面的分析流程
 
     # 两个按钮横排: 分析 (主) + 查看结果 (有结果才启用)
     has_result = _MV_AUDIO_SESSION_KEY in st.session_state
