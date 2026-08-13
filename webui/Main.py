@@ -127,6 +127,7 @@ _RUNTIME_CONFIG_SECTIONS = {
     "azure": config.azure,
     "chatterbox": config.chatterbox,
     "elevenlabs": config.elevenlabs,
+    "minimax_tts": config.minimax_tts,
     "siliconflow": config.siliconflow,
     "ui": config.ui,
 }
@@ -996,6 +997,8 @@ def _infer_tts_server_from_voice(voice_name):
         return "gemini-tts"
     if voice.is_mimo_voice(voice_name):
         return "mimo-tts"
+    if voice.is_minimax_voice(voice_name):
+        return "minimax-tts"
     if voice.is_elevenlabs_voice(voice_name):
         return "elevenlabs"
     if voice.is_chatterbox_voice(voice_name):
@@ -1567,11 +1570,12 @@ def _render_generation_task_snapshot(task_id, task):
         )
 
     _render_generation_logs(task_id)
-    if st.session_state.get("opened_generation_task_id") != task_id:
-        # 原同步流程会在生成完成后自动打开任务目录。Fragment 可能重复运行，
-        # 因此用会话标记保证每个任务只打开一次，避免连续弹出 Finder/资源管理器。
-        st.session_state["opened_generation_task_id"] = task_id
-        open_task_folder(task_id)
+    if st.session_state.get("handled_generation_task_id") != task_id:
+        # Fragment 可能重复渲染同一个完成任务。无论是否开启自动打开目录，
+        # 每个任务都只处理一次完成事件，避免重复弹出资源管理器或重复写入日志。
+        st.session_state["handled_generation_task_id"] = task_id
+        if config.ui.get("open_task_folder_on_completion", True):
+            open_task_folder(task_id)
         logger.info(f"{tr('Video Generation Completed')}: task_id={task_id}")
 
 
@@ -1660,7 +1664,11 @@ def get_llm_provider_tips(provider_id, **kwargs):
         return tips
 
     format_context = {
-        "api_key_url": provider.api_key_url,
+        "api_key_url": (
+            provider.international_api_key_url
+            if tips_language == "en" and provider.international_api_key_url
+            else provider.api_key_url
+        ),
         "default_model": provider.default_model,
         "default_base_url": provider.default_base_url,
         **{
@@ -1715,7 +1723,13 @@ def stable_selectbox(label, options, default_value, key, format_func=None, **kwa
 
     widget_key = localized_widget_key(key)
     selected_value = st.session_state.get(widget_key)
-    if selected_value not in options:
+    accepts_custom_value = bool(kwargs.get("accept_new_options"))
+    has_valid_custom_value = (
+        accepts_custom_value
+        and isinstance(selected_value, str)
+        and bool(selected_value.strip())
+    )
+    if selected_value not in options and not has_valid_custom_value:
         # 如果上游选项发生变化（例如切换 TTS provider 后声音列表变了），
         # 旧值已经不合法。控件创建前直接初始化 session_state，之后只让 key
         # 管理状态，不再同时传入 index。这样可以避免 Streamlit 在 rerun 时
@@ -2847,6 +2861,13 @@ def _get_voice_preview_provider_signature(tts_server: str) -> dict:
         }
     if tts_server == "mimo-tts":
         return {"credential": _credential_signature(config.app.get("mimo_api_key", ""))}
+    if tts_server == "minimax-tts":
+        return {
+            "base_url": voice.get_minimax_tts_endpoint(),
+            "model_id": config.minimax_tts.get("model_id", ""),
+            "voice_id": config.minimax_tts.get("voice_id", ""),
+            "credential": _credential_signature(voice.get_minimax_tts_api_key()),
+        }
     if tts_server == "elevenlabs":
         return {
             "model_id": config.elevenlabs.get("model_id", ""),
@@ -3119,6 +3140,186 @@ def _get_reusable_full_voice_preview(params, voice_mode: str) -> dict | None:
     }
 
 
+def _sync_minimax_tts_api_key_input():
+    """
+    同步 MiniMax TTS 密码控件，并返回当前有效 Key。
+
+    TTS 专用 Key 为空时允许复用 MiniMax LLM Key。共享 Key 只用于当前控件和
+    请求，不自动复制到 [minimax_tts]，避免同一凭证在配置文件中重复维护。
+    """
+    widget_key = "minimax_tts_api_key_input"
+    configured_key = str(config.minimax_tts.get("api_key", "") or "").strip()
+    shared_key = str(
+        config.app.get("minimax_api_key", "")
+        or os.getenv("MINIMAX_API_KEY", "")
+        or ""
+    ).strip()
+    effective_key = configured_key or shared_key
+    had_widget_state = widget_key in st.session_state
+    entered_key = str(st.session_state.get(widget_key, "") or "").strip()
+
+    if not entered_key and effective_key:
+        # 浏览器重连可能重放空密码状态。恢复已配置凭证，防止空值覆盖配置，
+        # 同时确保当前 rerun 的试听请求可以直接使用有效 Key。
+        st.session_state[widget_key] = effective_key
+        entered_key = effective_key
+        if had_widget_state:
+            logger.debug("restored MiniMax TTS API key after empty session replay")
+    elif not had_widget_state:
+        st.session_state[widget_key] = effective_key
+        entered_key = effective_key
+
+    if entered_key and entered_key != effective_key:
+        _set_runtime_config("minimax_tts", "api_key", entered_key)
+
+    return entered_key
+
+
+def _get_cached_minimax_voices(api_key: str, endpoint: str) -> list[dict[str, str]]:
+    """按站点和凭证摘要读取当前会话中的 MiniMax 音色查询结果。"""
+    cache = st.session_state.get("minimax_tts_voice_catalog_cache", {})
+    cache_key = f"{endpoint}|{_credential_signature(api_key)}"
+    cached_voices = cache.get(cache_key, [])
+    return cached_voices if isinstance(cached_voices, list) else []
+
+
+def _cache_minimax_voices(
+    api_key: str,
+    endpoint: str,
+    voices: list[dict[str, str]],
+):
+    """缓存主动查询到的音色，避免普通控件 rerun 后重复请求 MiniMax。"""
+    cache = st.session_state.setdefault("minimax_tts_voice_catalog_cache", {})
+    cache_key = f"{endpoint}|{_credential_signature(api_key)}"
+    cache[cache_key] = voices
+
+
+def _render_minimax_tts_settings() -> tuple[list[str], dict[str, str]]:
+    """渲染 MiniMax TTS 配置，并返回统一音色选择器使用的选项和文案。"""
+    effective_api_key = _sync_minimax_tts_api_key_input()
+    effective_api_key = st.text_input(
+        tr("MiniMax TTS API Key"),
+        type="password",
+        key="minimax_tts_api_key_input",
+    ).strip()
+
+    dedicated_key = str(config.minimax_tts.get("api_key", "") or "").strip()
+    minimax_tts_endpoints = [voice.MINIMAX_TTS_GLOBAL_URL, voice.MINIMAX_TTS_CN_URL]
+    effective_endpoint = voice.get_minimax_tts_endpoint()
+    if effective_endpoint not in minimax_tts_endpoints:
+        effective_endpoint = voice.MINIMAX_TTS_GLOBAL_URL
+    minimax_tts_base_url = stable_selectbox(
+        tr("MiniMax TTS Endpoint"),
+        options=minimax_tts_endpoints,
+        default_value=effective_endpoint,
+        key="minimax_tts_endpoint_select",
+        # 复用 LLM Key 时必须跟随 LLM 所在区域，避免界面允许选择一个实际
+        # 不会生效的地址；填写独立 TTS Key 后即可单独选择站点。
+        disabled=not dedicated_key,
+    )
+    if dedicated_key:
+        _set_runtime_config("minimax_tts", "base_url", minimax_tts_base_url)
+
+    configured_model = config.minimax_tts.get("model_id", voice.MINIMAX_TTS_DEFAULT_MODEL)
+    if configured_model not in voice.MINIMAX_TTS_MODELS:
+        configured_model = voice.MINIMAX_TTS_DEFAULT_MODEL
+    minimax_tts_model = stable_selectbox(
+        tr("MiniMax TTS Model"),
+        options=list(voice.MINIMAX_TTS_MODELS),
+        default_value=configured_model,
+        key="minimax_tts_model_select",
+    )
+    _set_runtime_config("minimax_tts", "model_id", minimax_tts_model)
+
+    if st.button(
+        tr("Load MiniMax Voices"),
+        key="load_minimax_voices_button",
+        icon=":material/refresh:",
+        use_container_width=True,
+    ):
+        try:
+            available_voices = voice.get_minimax_voice_catalog(
+                api_key=effective_api_key,
+                endpoint=minimax_tts_base_url,
+                voice_type="all",
+            )
+        except Exception as exc:
+            # 这里必须把异常暴露给用户并记录日志。账号区域不匹配、Key 权限不足
+            # 或网络失败都很常见，静默返回空列表会让用户误以为账号没有音色。
+            logger.warning(f"load MiniMax voices failed: {exc}")
+            st.error(tr("MiniMax Voices Load Failed").format(error=str(exc)))
+        else:
+            _cache_minimax_voices(
+                effective_api_key,
+                minimax_tts_base_url,
+                available_voices,
+            )
+            st.success(
+                tr("MiniMax Voices Loaded").format(count=len(available_voices))
+            )
+
+    available_voices = _get_cached_minimax_voices(
+        effective_api_key,
+        minimax_tts_base_url,
+    )
+    voice_labels = {
+        f"minimax:{item['voice_id']}": (
+            f"{item['voice_name']} ({item['voice_id']})"
+            if item["voice_name"] != item["voice_id"]
+            else item["voice_id"]
+        )
+        for item in available_voices
+    }
+    configured_voice_id = str(
+        config.minimax_tts.get("voice_id", voice.MINIMAX_TTS_DEFAULT_VOICE)
+        or voice.MINIMAX_TTS_DEFAULT_VOICE
+    ).strip()
+    configured_voice = f"minimax:{configured_voice_id}"
+    # 尚未点击获取音色、接口暂时不可用或配置使用列表外克隆音色时，仍保留
+    # 当前 Voice ID，确保原有生成流程不依赖远端音色查询结果。
+    voice_labels.setdefault(configured_voice, configured_voice_id)
+    return list(voice_labels), voice_labels
+
+
+def _sync_elevenlabs_api_key_input():
+    """
+    同步 ElevenLabs 密码控件、持久化配置和环境变量，并返回当前有效 Key。
+
+    Streamlit 在浏览器标签页连接到重启后的服务时，可能重放一个空的密码控件
+    状态。这个空值无法与用户主动清空可靠区分，因此当配置文件或环境变量仍有
+    Key 时，优先恢复有效值，防止空状态覆盖配置并确保本次 rerun 能立即加载
+    音色。需要彻底删除 Key 时应修改配置文件或环境变量，避免重连误判。
+    """
+    widget_key = "elevenlabs_api_key_input"
+    configured_key = str(config.elevenlabs.get("api_key", "") or "").strip()
+    env_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    effective_key = configured_key or env_key
+    had_widget_state = widget_key in st.session_state
+    entered_key = str(st.session_state.get(widget_key, "") or "").strip()
+
+    if not entered_key and effective_key:
+        # 重连后的空状态不能覆盖有效凭证，同时必须在渲染音色列表之前恢复，
+        # 否则配置文件虽然没有被清空，当前页面仍会使用空 Key 请求 ElevenLabs。
+        st.session_state[widget_key] = effective_key
+        entered_key = effective_key
+        if had_widget_state:
+            logger.debug("restored ElevenLabs API key after empty session replay")
+    elif not had_widget_state:
+        # 先初始化再创建控件，避免同时传 value 和 session_state 触发 Streamlit
+        # 的默认值冲突警告；没有任何 Key 时初始化为空即可。
+        st.session_state[widget_key] = entered_key
+
+    if entered_key and entered_key != effective_key:
+        # 用户主动输入的新值才落入 config.toml。环境变量作为有效值回填时不会
+        # 被复制到文件，容器或部署平台注入的密钥仍只保留在运行环境中。
+        for cache_key in list(st.session_state.keys()):
+            if str(cache_key).startswith("elevenlabs_voices_"):
+                del st.session_state[cache_key]
+        _set_runtime_config("elevenlabs", "api_key", entered_key)
+
+    return entered_key
+
+
 def _render_elevenlabs_api_key_input(label_key):
     """
     渲染 ElevenLabs TTS 与配乐共用的唯一 API Key 输入状态。
@@ -3127,25 +3328,12 @@ def _render_elevenlabs_api_key_input(label_key):
     后渲染的输入框还会覆盖共享配置。这里统一使用一个 key，并集中处理环境变量
     回填、配置更新和音色缓存失效，确保界面显示与后台任务始终读取同一个值。
     """
-    configured_key = str(config.elevenlabs.get("api_key", "") or "").strip()
-    effective_key = configured_key or os.getenv("ELEVENLABS_API_KEY", "").strip()
-    entered_key = st.text_input(
+    _sync_elevenlabs_api_key_input()
+    return st.text_input(
         tr(label_key),
-        value=effective_key,
         type="password",
         key="elevenlabs_api_key_input",
     ).strip()
-
-    if entered_key != effective_key:
-        for cache_key in list(st.session_state.keys()):
-            if str(cache_key).startswith("elevenlabs_voices_"):
-                del st.session_state[cache_key]
-
-    # 环境变量仅用于当前进程，不在用户未修改时自动复制到 config.toml。
-    # 已有配置或用户主动修改输入时才更新本机配置，与 Sonilo 行为保持一致。
-    if configured_key or entered_key != effective_key:
-        _set_runtime_config("elevenlabs", "api_key", entered_key)
-    return entered_key
 
 
 # ================ 音频分析模块 (老杨 8/8 13:19 拍板) ================
@@ -4257,6 +4445,7 @@ def _render_audio_settings(panel, params):
                 ("siliconflow", "SiliconFlow TTS"),
                 ("gemini-tts", "Google Gemini TTS"),
                 ("mimo-tts", "Xiaomi MiMo TTS"),
+                ("minimax-tts", "MiniMax TTS"),
                 ("elevenlabs", "ElevenLabs TTS"),
                 ("chatterbox", "Chatterbox TTS"),
             ]
@@ -4288,6 +4477,15 @@ def _render_audio_settings(panel, params):
                 if provider_tips:
                     st.info(provider_tips)
 
+            # MiniMax 只复用下方通用“配音声音”选择器。Provider 配置函数负责
+            # 刷新远端音色并返回友好文案，不再额外渲染 Voice ID 和音色下拉框。
+            minimax_voices = []
+            minimax_voice_labels = {}
+            if tts_mode_enabled and selected_tts_server == "minimax-tts":
+                minimax_voices, minimax_voice_labels = (
+                    _render_minimax_tts_settings()
+                )
+
             # 根据选择的TTS服务器获取声音列表
             filtered_voices = []
             saved_voice_name = config.ui.get("voice_name", "")
@@ -4305,18 +4503,12 @@ def _render_audio_settings(panel, params):
             elif selected_tts_server == "mimo-tts":
                 # 获取 Xiaomi MiMo TTS 的预置音色列表
                 filtered_voices = voice.get_mimo_voices()
+            elif selected_tts_server == "minimax-tts":
+                filtered_voices = minimax_voices
             elif selected_tts_server == "elevenlabs":
-                # Read from session_state first so the API key is available before
-                # the Play Voice button runs (which is earlier in the script than
-                # the API key text_input widget).
-                saved_elevenlabs_api_key = st.session_state.get(
-                    "elevenlabs_api_key_input",
-                    config.elevenlabs.get("api_key", ""),
-                )
-                if saved_elevenlabs_api_key:
-                    _set_runtime_config(
-                        "elevenlabs", "api_key", saved_elevenlabs_api_key
-                    )
+                # 音色列表位于 Key 输入框之前渲染，必须先统一恢复重连状态并读取
+                # 配置/环境变量，否则页面会用空 Key 加载并缓存空音色列表。
+                saved_elevenlabs_api_key = _sync_elevenlabs_api_key_input()
                 cache_key = f"elevenlabs_voices_{saved_elevenlabs_api_key}"
                 if cache_key not in st.session_state:
                     st.session_state[cache_key] = voice.get_elevenlabs_voices(
@@ -4351,6 +4543,8 @@ def _render_audio_settings(panel, params):
                 if voice.is_chatterbox_voice(v):
                     name = v.split(":", 1)[1] if ":" in v else v
                     return name.replace("-Female", "").replace("-Male", "")
+                if voice.is_minimax_voice(v):
+                    return minimax_voice_labels.get(v, v.split(":", 1)[1])
                 return (
                     v.replace("Female", tr("Female"))
                     .replace("Male", tr("Male"))
@@ -4384,8 +4578,25 @@ def _render_audio_settings(panel, params):
                     options=list(friendly_names.keys()),
                     default_value=list(friendly_names.keys())[saved_voice_name_index],
                     key=f"speech_synthesis_select_{selected_tts_server}",
-                    format_func=lambda value: friendly_names[value],
+                    format_func=lambda value: friendly_names.get(
+                        value,
+                        str(value).removeprefix("minimax:"),
+                    ),
+                    # MiniMax 支持用户直接输入列表外的克隆或生成音色 ID；其它
+                    # Provider 维持原选择器行为，不扩大本次修改的影响范围。
+                    accept_new_options=selected_tts_server == "minimax-tts",
                 )
+
+                if selected_tts_server == "minimax-tts":
+                    custom_voice_id = str(voice_name or "").strip()
+                    if custom_voice_id and not voice.is_minimax_voice(custom_voice_id):
+                        voice_name = f"minimax:{custom_voice_id}"
+                    if voice.is_minimax_voice(voice_name):
+                        _set_runtime_config(
+                            "minimax_tts",
+                            "voice_id",
+                            voice_name.split(":", 1)[1],
+                        )
 
                 params.voice_name = voice_name
                 if not voice.is_no_voice(voice_name):
