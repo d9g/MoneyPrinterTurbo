@@ -4069,18 +4069,23 @@ def _render_mv_analysis_dialog(task_id: str, task: dict):
         st.rerun()
 
 
-def _render_audio_analysis_panel(uploaded_audio_file):
+def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice"):
     """老杨 8/8 拍板的 UI: 上传音频后点按钮 → 弹窗里看分析结果 + 一键应用
 
     老杨 8/8 13:34 拍板: 改用 st.dialog 弹窗代替 expander, 宽屏看分析结果
 
     2026-08-10 老杨拍板: 首次上传弹版权声明 (st.session_state 记忆, 不再每次打断)
+
+    2026-08-13 老杨拍板: 加 key_prefix 参数, 支持同一页面多处调用
+        - 音频设置区上传语音： key_prefix="voice"
+        - 背景音乐区上传音频：key_prefix="bgm"
+        避免 widget key 冲突 (streamlit 不允许同页面两个同名 widget)
     """
     if uploaded_audio_file is None:
         st.caption(tr("Audio Analysis No Audio"))
         return
 
-    # 2026-08-10 老杨拍板: 首次上传弹版权声明, session_state 记忆
+    # 2026-08-10 老杨拍板: 首次上传弹版权声明, session_state 记忆（全局共享, 不分 prefix）
     _COPYRIGHT_ACK_KEY = "_mpt_audio_copyright_acknowledged"
     if not st.session_state.get(_COPYRIGHT_ACK_KEY, False):
         with st.container(border=True):
@@ -4092,7 +4097,7 @@ def _render_audio_analysis_panel(uploaded_audio_file):
                 "在本地解密后重新上传明文文件。\n\n"
                 "严禁将分析结果用于侵犯第三方版权的内容生成。"
             )
-            if st.button("✅ 我已阅读并接受上述声明", key="audio_copyright_ack_btn"):
+            if st.button("✅ 我已阅读并接受上述声明", key=f"audio_copyright_ack_btn_{key_prefix}"):
                 st.session_state[_COPYRIGHT_ACK_KEY] = True
                 st.rerun()
             st.stop()  # 未勾选不进入下面的分析流程
@@ -4125,7 +4130,7 @@ def _render_audio_analysis_panel(uploaded_audio_file):
     with btn_cols[0]:
         st.button(
             tr("Analyze Music Button"),
-            key="mv_analyze_music_button",
+            key=f"mv_analyze_music_button_{key_prefix}",
             use_container_width=True,
             type="primary",
             help="调用音频分析服务, 提取曲调特征 + AI 意境方案",
@@ -4135,7 +4140,7 @@ def _render_audio_analysis_panel(uploaded_audio_file):
     with btn_cols[1]:
         st.button(
             tr("View Analysis Result"),
-            key="mv_view_analysis_button",
+            key=f"mv_view_analysis_button_{key_prefix}",
             use_container_width=True,
             type="secondary",
             disabled=not has_result,
@@ -4149,7 +4154,7 @@ def _render_audio_analysis_panel(uploaded_audio_file):
     with debug_cols[0]:
         st.checkbox(
             "🛠 Force Rerun (bypass cache)",
-            key=_MV_FORCE_RERUN_KEY,
+            key=f"{_MV_FORCE_RERUN_KEY}_{key_prefix}",
             value=False,
             help="勾选后下次点分析会绕过缓存强制调用 LLM",
         )
@@ -4175,7 +4180,7 @@ def _render_audio_analysis_panel(uploaded_audio_file):
             logger.info(f"mv_cache_clear: signature={sig[:20]} deleted={deleted}")
         st.button(
             "🗑 Clear MV Cache",
-            key="mv_clear_cache_button",
+            key=f"mv_clear_cache_button_{key_prefix}",
             use_container_width=True,
             help="清除当前音频的 MV 缓存记录, 下次点分析会重新调用 LLM",
             on_click=_clear_mv_cache_callback,
@@ -4327,6 +4332,8 @@ def _render_background_music_settings(params, elevenlabs_api_key_rendered=False)
                 )
                 st.audio(uploaded_bgm_file, format=preview_mime_type)
                 st.info(f"{tr('Background Music Ready')}: {safe_name}")
+                # 老杨 8/13 拍板: 背景音乐也加 MV 歌曲评价入口，跟音频设置里的上传语音一致
+                _render_audio_analysis_panel(uploaded_bgm_file, key_prefix="bgm")
                 params.bgm_file = safe_name
 
         custom_bgm_file = st.text_input(
@@ -4830,7 +4837,7 @@ def _render_audio_settings(panel, params):
                         )
                     )
                     # 老杨 8/8 13:19 拍板: 上传音频后点按钮调 mv.analyze 服务
-                    _render_audio_analysis_panel(uploaded_audio_file)
+                    _render_audio_analysis_panel(uploaded_audio_file, key_prefix="voice")
                     # 老杨 8/8 21:09: 高潮段独立 MV - 从 mv.audio.apply 后存到 session_state
                     # audio_clip_range_start/audio_clip_range_end 这里以 expander 显示
                     _audio_clip_range_start = st.session_state.get("audio_clip_range_start")
