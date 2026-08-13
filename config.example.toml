@@ -101,7 +101,7 @@ mv_intent_retention_days = 90
 llm_provider = "moonshot"
 
 # Kimi / Moonshot AI
-# API key: https://platform.kimi.com/console/api-keys
+# API key: https://platform.kimi.com?track_id=track-2f5441d6ffd84c509dd079d78e9db5dc&aff=moneyprinterturbo
 moonshot_api_key = ""
 moonshot_base_url = ""
 moonshot_model_name = ""
@@ -333,6 +333,22 @@ speech_region = ""
 # SiliconFlow TTS API key: https://siliconflow.cn/
 api_key = ""
 
+[minimax_tts]
+# API key: https://platform.minimax.io/user-center/basic-information/interface-key
+# Global endpoint: https://api.minimax.io/v1/t2a_v2
+# China endpoint: https://api.minimaxi.com/v1/t2a_v2
+# When api_key is empty, the MiniMax LLM key and its matching regional endpoint
+# are reused automatically. Set both fields only when TTS uses a separate key.
+api_key = ""
+base_url = ""
+model_id = "speech-2.8-hd"
+voice_id = "English_expressive_narrator"
+sample_rate = 32000
+bitrate = 128000
+audio_format = "mp3"
+channel = 1
+pitch = 0
+
 [elevenlabs]
 # API key: https://elevenlabs.io/app/settings/api-keys
 # Favorite voices in the ElevenLabs voice library are shown in the WebUI.
@@ -359,6 +375,10 @@ voices = ["default-Female"]
 [ui]
 # Hide generation logs in the WebUI.
 hide_log = false
+
+# Open the task folder automatically after video generation completes.
+# 视频生成完成后是否自动打开任务目录；关闭后仍可在任务管理中手动打开。
+open_task_folder_on_completion = true
 
 # The WebUI writes the remaining preferences automatically. Uncomment values
 # below only when you want to define initial defaults manually.
