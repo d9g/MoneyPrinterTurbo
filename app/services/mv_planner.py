@@ -85,8 +85,113 @@ def _translate_keywords_to_en(cn_keywords: list[str]) -> list[str]:
     return out
 
 
+# 老杨 2026-08-15 拍板: 兜底规则也走曲风 / 场景 一致性
+_FALLBACK_GENRE_RULES = [
+    # (检测函数, 曲风名, 中文关键词, 英文 Pexels 关键词)
+    (
+        lambda af, lyr: _detect_chinese_style(af, lyr),
+        "国风 / 古风",
+        ["古建筑", "水墨山水", "竹林", "古道", "纸灯"],
+        ["chinese architecture", "ink painting", "bamboo forest", "river landscape", "ancient temple"],
+        ["水墨黑", "淡青", "宣纸白", "琥珀金", "青瓦灰"],
+    ),
+    (
+        lambda af, lyr: _detect_chinese_pop(af, lyr),
+        "中式流行",
+        ["中国城市", "灯笼街", "老上海", "天际线"],
+        ["chinese city night", "lantern street", "oriental skyline", "modern oriental"],
+        ["灯笼红", "暖橙", "霓虹暖黄", "都市灰蓝", "金"],
+    ),
+    (
+        lambda af, lyr: _detect_electronic(af),
+        "电子",
+        ["赛博", "夜店", "舞台", "光影"],
+        ["cyberpunk", "dj stage", "laser show", "futuristic neon"],
+        ["赛博青", "霓虹粉", "深空黑", "电流紫", "锐红"],
+    ),
+    (
+        lambda af, lyr: _detect_ballad(af),
+        "抒情",
+        ["雨天", "窗台", "离别", "孤灯"],
+        ["rain window", "lonely street", "single lamp", "autumn leaves"],
+        ["雨天冷蓝", "柔灰", "橙黄暖灯", "夜青", "古铜"],
+    ),
+    (
+        lambda af, lyr: _detect_folk(af),
+        "民谣",
+        ["田园", "乡间", "草原", "原野"],
+        ["countryside", "folk guitar", "meadow", "mountain village"],
+        ["草原暖绿", "麦黄", "夕照橙", "土褐", "天青"],
+    ),
+    (
+        lambda af, lyr: _detect_rock(af),
+        "摇滚",
+        ["现场", "舞台", "烟雾"],
+        ["rock concert", "stage lights", "smoke machine"],
+        ["烟雾白", "舞台紫", "锐灯金", "深黑", "泫红"],
+    ),
+]
+
+
+def _detect_chinese_style(af: dict, lyrics: str) -> bool:
+    """国风/古风检测: 五声音阶 + 中频主导 + 古典歌词关键词"""
+    brightness = (af.get("spectral") or {}).get("brightness_hz", 0)
+    lyrics_lower = (lyrics or "").lower()
+    has_chinese_lyric_keywords = any(
+        kw in lyrics for kw in ["古", "风", "山水", "江河", "万里", "长安", "千年", "江湖",
+                                 "剑", "琴", "酒", "月", "青", "红", "梦", "红尘"]
+    )
+    # 五声音阶提示: brightness 较低 (<1500Hz) + 中文歌词有古典意象
+    if brightness > 0 and brightness < 1500 and has_chinese_lyric_keywords:
+        return True
+    return False
+
+
+def _detect_chinese_pop(af: dict, lyrics: str) -> bool:
+    """中式流行检测: 中速 + 中文歌词 + 现代城市意象"""
+    tempo_obj = af.get("tempo") or {}
+    bpm = tempo_obj.get("bpm", 0)
+    lyrics_has_urban = any(
+        kw in (lyrics or "") for kw in ["城市", "街", "夜", "霓虹", "梦", "心", "爱"]
+    )
+    if 80 <= bpm <= 130 and lyrics_has_urban:
+        return True
+    return False
+
+
+def _detect_electronic(af: dict) -> bool:
+    """电子检测: 高 BPM (>120)"""
+    tempo_obj = af.get("tempo") or {}
+    return tempo_obj.get("bpm", 0) > 120
+
+
+def _detect_ballad(af: dict) -> bool:
+    """抒情检测: 慢 BPM (<80)"""
+    tempo_obj = af.get("tempo") or {}
+    return 0 < tempo_obj.get("bpm", 999) < 80
+
+
+def _detect_folk(af: dict) -> bool:
+    """民谣检测: 中低速 + 较高动态范围"""
+    tempo_obj = af.get("tempo") or {}
+    bpm = tempo_obj.get("bpm", 0)
+    dynamic_obj = af.get("dynamic") or {}
+    dynamic_db = dynamic_obj.get("dynamic_range_db", 0)
+    return 60 <= bpm <= 110 and dynamic_db > 15
+
+
+def _detect_rock(af: dict) -> bool:
+    """摇滚检测: 中高速 (110-160 BPM)"""
+    tempo_obj = af.get("tempo") or {}
+    bpm = tempo_obj.get("bpm", 0)
+    return 110 < bpm < 160
+
+
 def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
-    """规则版降级方案 (LLM 失败 + 无缓存时使用)"""
+    """规则版降级方案 (LLM 失败 + 无缓存时使用)
+
+    老杨 2026-08-15 拍板: 兜底也按曲风锁定场景, 不再给国风输出霓虹/城市词
+    """
     # 审计 P2-5: 任何字段缺失/异常都兑底, 不抛 KeyError
     tempo_obj = audio_features.get("tempo") or {}
     tempo_class_raw = tempo_obj.get("tempo_class", "") if isinstance(tempo_obj, dict) else ""
@@ -98,32 +203,50 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
     duration = float(audio_features.get("duration") or 0)
     lyrics_lines = len([l for l in (lyrics or "").splitlines() if l.strip()])
 
+    # 老杨 2026-08-15: 按曲风锁定视觉符号 (不依赖 LLM)
+    matched_genre = None
+    cn_scene = []
+    en_scene = []
+    palette = ["暖金琥珀", "暮色蓝灰", "柔光奶白"]
+    for detect_fn, genre_name, cn_kw, en_kw, pl in _FALLBACK_GENRE_RULES:
+        if detect_fn(audio_features, lyrics or ""):
+            matched_genre = genre_name
+            cn_scene = cn_kw
+            en_scene = en_kw
+            palette = pl
+            break
+
+    # 未匹配曲风时, 兑底为流行 (最安全)
+    if matched_genre is None:
+        matched_genre = "流行"
+        cn_scene = ["都市", "生活", "年轻"]
+        en_scene = ["urban lifestyle", "young people", "city street"]
+        palette = ["暖金琥珀", "暮色蓝灰", "柔光奶白"]
+
     # 老杨 8/9 08:19 拍板: 动态段数, 不硬凑 6 段
-    # 规则: 音频段落存在用其长度, 否则按 ~30 秒/段估算, 同时考虑歌词行数 (每 6-8 行一段)
     if sections:
         n = len(sections)
     elif duration > 0:
-        # ~30 秒一段 (4 分钟歌 ~8 段), 最少 2 段, 最多 10 段
         n = max(2, min(10, round(duration / 30)))
     elif lyrics_lines > 0:
-        # 每 6-8 行歌词一段
         n = max(2, min(8, round(lyrics_lines / 7)))
     else:
-        n = 4  # 兑底
+        n = 4
 
     return {
         "mood_summary": (
-            f"基于 {key} 调性 + {tempo_class} 节奏, 整体氛围以 {', '.join(keywords[:3])} 为主."
+            f"【{matched_genre}】基于 {key} 调性 + {tempo_class} 节奏, "
+            f"整体氛围以 {', '.join(keywords[:3])} 为主, 视觉锁定 {', '.join(cn_scene[:3])}."
             + (f" 歌词提示: {lyrics[:50]}" if lyrics else "")
         ),
-        "theme_keywords_cn": keywords + (["歌词"] if lyrics else ["音乐"]),
-        "theme_keywords_en": _translate_keywords_to_en(keywords) + (["lyrics"] if lyrics else ["music"]),
-        "color_palette": ["暖金琥珀", "暮色蓝灰", "柔光奶白"],
-        # 老杨 8/9 10:30 拍板: 不再生成 video_prompts 分段数组
+        "theme_keywords_cn": cn_scene,
+        "theme_keywords_en": en_scene,
+        "color_palette": palette,
         "transition_style": "fade",
         "subtitle_style": "bottom",
         "_source": "fallback_rule",
         "_fallback_reason": "LLM 调用失败且无缓存",
+        "_detected_genre": matched_genre,
     }
 
 
@@ -135,6 +258,35 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 老杨 8/9 10:30 拍板: MV 模式简化为基础 video 生成
 - 不再要求分段时间轴 (video_prompts 分段)
 - LLM 只输出意境 + 关键词 + 调色, 关键词会被 Pexels/Pixabay/Coverr 用于搜索视频
+
+老杨 2026-08-15 拍板: 曲风 / 场景 一致性
+- 强制从「曲风候选词表」选一个作为意境主调, 不可绕过
+- 视觉符号必须与曲风一致; 不许给国风歌曲出霓虹/城市/赛博场景
+- theme_keywords_en 只返与曲风一致的视觉符号, Pexels/Pixabay 才搜得到
+
+# 曲风候选词表 (必选 1 个主调, 可加 1 个修饰)
+
+| 曲风 | 音频识别要点 | 中文视觉符号 | theme_keywords_en (Pexels 友好) |
+|------|------------|------------|------------------------------|
+| 国风 / 古风 | 五声音阶(do re mi sol la), 中频集中(<1500Hz), 戏腔/古筝/箫/二胡 | 古建筑/水墨/山水/竹林/古道/纸灯/汉服/青瓦 | chinese architecture, ink painting, bamboo forest, river landscape, ancient temple, hanfu, lantern, calligraphy |
+| 中式 R&B / 中国风流行 | 大调+中国传统五声音阶, 现代节奏+民族音色 | 都市夜景/中国城市天际线/灯笼街/老上海 | chinese city night, lantern street, oriental skyline, modern oriental, asian metropolis |
+| 流行 Pop | 标准大调, 高频亮, 鼓点突出 | 都市日常/年轻/城市/潮流 | pop city, young people, urban lifestyle, fashion runway, neon street |
+| 电子 Electronic | 高频能量, 节奏快(>120BPM), 合成器特征 | 赛博/夜店/科技/光影 | cyberpunk, nightclub lights, dj stage, laser show, futuristic neon |
+| 民谣 Folk | 中低速, 原声吉他/钢琴主导, 高动态 | 田园/乡间/原野/草原/老人 | countryside, folk guitar, field, meadow, mountain village, campfire |
+| 抒情 Ballad | 慢速(<80BPM), 钢琴/弦乐, 大动态 | 雨天/窗台/离别/孤灯/落叶 | rain window, lonely street, autumn leaves, single lamp, parting moment |
+| 摇滚 Rock | 中高速, 失真吉他, 强鼓点 | 现场/舞台/呐喊/烟雾 | rock concert, stage lights, smoke machine, guitar solo, crowd energy |
+| 复古 Retro | 70/80s 音色, 模拟合成器, 律动明显 | 迪斯科/老电视/胶片/黄昏 | retro disco, vintage film, old tv, 80s neon, sunset car |
+| 治愈 / 温柔 | 慢速, 弦乐+钢琴, 暖色频谱 | 阳光/咖啡/猫/花田/午后 | warm sunlight, cafe latte, cat sleeping, flower field, afternoon |
+| 说唱 / 嘻哈 | 强节奏(80-120BPM), bass 重, 人声押韵 | 街头/涂鸦/潮牌/嘻哈文化 | street graffiti, hip hop culture, urban dance, lowrider, basketball court |
+
+# theme_keywords_en 强约束 (Pexels 才能搜得到)
+- 必须从对应曲风的 theme_keywords_en 列里选 5-10 个, 不许跨风格混
+- 每个关键词必须是 Pexels 能搜出视频的具体名词, 不是抽象词
+- 负向清单 (出现就重写):
+  - ❌ "city night, neon lights, highway, running silhouette" 给国风/民谣/抒情 → 换成 chinese architecture / bamboo forest / rain window
+  - ❌ "cyberpunk, dj stage, laser show" 给国风/民谣 → 换成中式符号
+  - ❌ 抽象词 (emotion / feeling / vibe / atmosphere / mood) → Pexels 搜不出, 替换成具体景物
+- 同义词扩展: 中式意境可用 "ancient chinese, oriental, eastern, zen, asian traditional" 增强搜索召回
 
 # 严格输出要求 (按这个 JSON Schema)
 
@@ -176,6 +328,27 @@ _USER_PROMPT_FIRST = """# 首次分析 (无历史)
 
 ## 歌词
 {lyrics_block}
+
+## 曲风识别 (必走流程, 不许跳)
+
+**第一步: 判曲风** - 看音频特征 + 歌词双重验证
+- 五声音阶(CDEGA) + 中频主导 + 古筝/箫/二胡音色 → **国风 / 古风**
+- 大调 + 现代节奏 + 中国城市意象词 → **中式 R&B / 中国风流行**
+- 标准大调 + 高频亮 + 鼓点强 + 都市歌词 → **流行 Pop**
+- 高频亮 + >120BPM + 合成器 → **电子 Electronic**
+- 中低速 + 原声吉他/钢琴 + 田园意象 → **民谣 Folk**
+- <80BPM + 钢琴/弦乐 + 抒情意象 → **抒情 Ballad**
+- 中高速 + 失真吉他 → **摇滚 Rock**
+- 70/80s 音色 + 律动明显 → **复古 Retro**
+- 慢速 + 暖色频谱 + 治愈意象 → **治愈**
+- 强节奏 + bass 重 + 押韵 → **说唱**
+
+**第二步: 锁视觉符号** - 按曲风候选词表的「theme_keywords_en」列选 5-10 个具体名词
+
+**第三步: 自检** - 拿主题词反问: "给一个录影师, 他拿这些词能拍出匹配这首歌的镜头吗?"
+- 国风 + "city night, neon lights" → 失败, 重写
+- 民谣 + "dj stage, laser show" → 失败, 重写
+- 抒情 + "rock concert, crowd energy" → 失败, 重写
 
 请输出完整 MV 意境方案 (JSON).
 """
