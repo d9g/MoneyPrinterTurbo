@@ -134,16 +134,57 @@ _FALLBACK_GENRE_RULES = [
 
 
 def _detect_chinese_style(af: dict, lyrics: str) -> bool:
-    """国风/古风检测: 五声音阶 + 中频主导 + 古典歌词关键词"""
+    """国风/古风检测: 多特征综合评分
+
+    老杨 2026-08-15 23:08 拍板: 长风渡案例 (BPM 112 / D大调 / 频谱中性)
+    证明单看 brightness < 1500 不够, 必须结合歌词意象 + 调性 + 节奏范围综合判断.
+
+    判定逻辑:
+    - 强信号 (任一命中即判国风):
+      - 调性是五声音阶常见调 (C/D/E/G/A major, 不含 #/b)
+      - 歌词命中 3 个以上古典意象词
+    - 中信号 (需 2 个同时命中):
+      - 歌词命中 1-2 个古典意象词 + BPM 60-130 + 动态范围适中
+      - 频谱亮度 < 1800Hz + 歌词命中古典意象
+    """
+    tempo_obj = af.get("tempo") or {}
+    bpm = tempo_obj.get("bpm", 0)
+    key_obj = af.get("key_info") or {}
+    key = key_obj.get("key", "") if isinstance(key_obj, dict) else ""
     brightness = (af.get("spectral") or {}).get("brightness_hz", 0)
-    lyrics_lower = (lyrics or "").lower()
-    has_chinese_lyric_keywords = any(
-        kw in lyrics for kw in ["古", "风", "山水", "江河", "万里", "长安", "千年", "江湖",
-                                 "剑", "琴", "酒", "月", "青", "红", "梦", "红尘"]
-    )
-    # 五声音阶提示: brightness 较低 (<1500Hz) + 中文歌词有古典意象
-    if brightness > 0 and brightness < 1500 and has_chinese_lyric_keywords:
+
+    # 老杨 8/15 23:08: 古典意象词表扩充 (长风渡例: 烟雨/天涯/风霜/晚霞/染霜/少年/策马)
+    classical_keywords = [
+        # 原有词
+        "古", "风", "山水", "江河", "万里", "长安", "千年", "江湖",
+        "剑", "琴", "酒", "月", "青", "红", "梦", "红尘",
+        # 长风渡实证新增
+        "烟雨", "天涯", "风霜", "晚霞", "霜华", "少年", "策马",
+        "山行", "晓", "黄昏", "竹", "纸灯", "汉服",
+        "古道", "马", "云", "星辰", "海角",
+    ]
+    hits = sum(1 for kw in classical_keywords if kw in (lyrics or ""))
+
+    # 强信号 1: 五声音阶调性 (C/D/E/G/A 大调, 无升降号)
+    pentatonic_keys = {"C", "D", "E", "G", "A"}
+    is_pentatonic = key in pentatonic_keys
+
+    # 强信号 2: 歌词命中 3+ 古典意象
+    if hits >= 3:
         return True
+
+    # 强信号 3: 调性是五声音阶 + 至少 1 个古典意象
+    if is_pentatonic and hits >= 1:
+        return True
+
+    # 中信号 1: BPM 60-130 + 至少 1 个古典意象 + 频谱亮度 < 1800Hz
+    if 60 <= bpm <= 130 and hits >= 1 and brightness > 0 and brightness < 1800:
+        return True
+
+    # 中信号 2: 歌词命中 2 个古典意象
+    if hits >= 2:
+        return True
+
     return False
 
 
@@ -309,7 +350,47 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 - 不要包含 hex 颜色代码, 只给中文颜色名
 - 不要输出 Markdown 代码块包裹, 直接输出 JSON
 
-只用 ```json 包裹, 不要其他 Markdown 装饰."""
+只用 ```json 包裹, 不要其他 Markdown 装饰.
+
+# 1-shot 反例 (老杨 2026-08-15 23:08 提供)
+
+## 反例: 「长风渡」国风歌 - 错输出与正确输出对比
+
+**输入音频特征**:
+- 时长: 232.9s / BPM: 112 (中板) / 调性: D major / 音域: 44 半音 / 频谱亮度: 中等
+
+**输入歌词**:
+```
+半生烟雨走天涯
+风霜刻满了脸颊
+少年策马逐晚霞
+归来两鬓染霜华
+```
+
+**LLM 错输出** (老杨拍板不准):
+```json
+{
+  "theme_keywords_cn": ["晨光", "麦田", "山路", "奔跑", "光柱", "远空", "地平线", "海浪", "自由", "远行"],
+  "theme_keywords_en": ["golden hour", "wheat field", "mountain road", "running person", "sunlight rays", "open sky", "horizon view", "ocean waves", "wind blowing hair", "freedom journey"]
+}
+```
+
+**问题**: 歌词明显是古典意象 (烟雨/天涯/风霜/晚霞/少年/策马/霜华), 但 LLM 只看音频特征 (BPM 112 + D 大调 + 较亮), 输出成现代旷野/黄昏/麦田场景, 与古典歌词意象严重不匹配.
+
+**正确输出**:
+```json
+{
+  "theme_keywords_cn": ["古道", "少年", "烟雨", "天涯", "晚霞", "霜华", "马蹄", "风霜"],
+  "theme_keywords_en": ["ancient chinese", "chinese architecture", "bamboo forest", "river landscape", "hanfu figure", "ancient temple", "wilderness road", "misty mountains"]
+}
+```
+
+**学习**: 古典意象词 (烟雨/天涯/风霜/晚霞/少年/策马) → 强指向 **国风 / 古风**, 即使 BPM / 调性看起来像现代流行, 也要以歌词为准.
+
+**反例校验清单** (输出前自检):
+- [ ] 关键词是否跟古典意象一致 (古道/竹/山水/汉服, 而不是麦田/霓虹/旷野/自由)?
+- [ ] 颜色调色是否中式 (水墨黑/宣纸白/青瓦灰, 而不是琥珀金/天空蓝/麦田黄)?
+- [ ] 意境描述是否中式 (烟雨/剑/古道, 而不是奔跑/远行/自由)?"""
 
 
 _USER_PROMPT_FIRST = """# 首次分析 (无历史)
@@ -329,13 +410,20 @@ _USER_PROMPT_FIRST = """# 首次分析 (无历史)
 ## 歌词
 {lyrics_block}
 
-## 曲风识别 (必走流程, 不许跳)
+## 曲风识别 (老杨 2026-08-15 23:08 拍板: 歌词优先级 > 音频特征)
 
-**第一步: 判曲风** - 看音频特征 + 歌词双重验证
-- 五声音阶(CDEGA) + 中频主导 + 古筝/箫/二胡音色 → **国风 / 古风**
-- 大调 + 现代节奏 + 中国城市意象词 → **中式 R&B / 中国风流行**
-- 标准大调 + 高频亮 + 鼓点强 + 都市歌词 → **流行 Pop**
-- 高频亮 + >120BPM + 合成器 → **电子 Electronic**
+**第一步: 先看歌词意象 (优先级最高)**
+- 古典意象 (烟雨/天涯/风霜/晚霞/少年/策马/长安/古道/竹/月/酒) → 极可能是 **国风 / 古风**
+- 都市意象 (霓虹/城市/街/派对/低腰裤/贝雷帽) → 流行 / 电子 / 都市
+- 田园意象 (草原/山丘/老人/船/吉他) → 民谣
+- 抒情意象 (离别/雨/窗台/孤独) → 抒情 Ballad
+- 梦境意象 (梦/天使/星星/魔法) → 流行 / 治愈
+
+**第二步: 看音频特征验证**
+- 五声音阶调性 (C/D/E/G/A major) + 中频主导 + 古典意象 → 确认 **国风 / 古风**
+- 大调 + 现代节奏 + 都市意象 → **中式 R&B / 中国风流行**
+- 标准大调 + 高频亮 + 鼓点强 → **流行 Pop**
+- >120BPM + 合成器 → **电子 Electronic**
 - 中低速 + 原声吉他/钢琴 + 田园意象 → **民谣 Folk**
 - <80BPM + 钢琴/弦乐 + 抒情意象 → **抒情 Ballad**
 - 中高速 + 失真吉他 → **摇滚 Rock**
@@ -343,10 +431,9 @@ _USER_PROMPT_FIRST = """# 首次分析 (无历史)
 - 慢速 + 暖色频谱 + 治愈意象 → **治愈**
 - 强节奏 + bass 重 + 押韵 → **说唱**
 
-**第二步: 锁视觉符号** - 按曲风候选词表的「theme_keywords_en」列选 5-10 个具体名词
-
 **第三步: 自检** - 拿主题词反问: "给一个录影师, 他拿这些词能拍出匹配这首歌的镜头吗?"
 - 国风 + "city night, neon lights" → 失败, 重写
+- 国风 + "wheat field, golden hour" → 失败, 重写 (出现现代旷野/麦田场景不对应古典意象)
 - 民谣 + "dj stage, laser show" → 失败, 重写
 - 抒情 + "rock concert, crowd energy" → 失败, 重写
 
