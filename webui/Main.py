@@ -3576,6 +3576,88 @@ def _format_mv_plan_for_humans(plan: dict) -> str:
     return "\n\n".join(lines)
 
 
+def _find_matching_lrc_for_uploaded_audio(uploaded_audio_file) -> str:
+    """老杨 2026-08-15 23:23 拍板: WebUI 上传 mp3 后, 自动匹配 storage/lrc/ 下的 LRC.
+
+    背景: LRC 上传时 (line 5006) 按 md5[:12] 命名, 但哈希的是 LRC 文件本身内容,
+        不是对应的 mp3. 所以 mp3 跟 LRC md5 对不上.
+    修法: 按 LRC 头 [ti:xxx] 标题 + 文件名双重匹配.
+
+    匹配优先级:
+      1. mp3 文件名 (去掉扩展名) 跟 LRC 文件名包含关系
+      2. mp3 文件名 跟 LRC 头 [ti:xxx] 包含关系
+      3. 找不到返空串, mv_planner 走纯音频路径.
+
+    Args:
+        uploaded_audio_file: streamlit UploadedFile (有 .getbuffer() / .name)
+
+    Returns:
+        解析后的歌词纯文本 (按时间戳一行), 找不到返空串.
+    """
+    try:
+        from app.services.lyrics_parser import parse_lyrics_file, format_for_planner
+
+        lrc_dir = Path(utils.root_dir()) / "storage" / "lrc"
+        if not lrc_dir.exists():
+            return ""
+
+        # mp3 文件名去扩展名作为匹配 key (例 "长风渡.mp3" -> "长风渡")
+        mp3_name = Path(uploaded_audio_file.name or "").stem
+        if not mp3_name:
+            return ""
+
+        candidates = []
+        for ext in (".lrc", ".qrc", ".txt"):
+            candidates.extend(lrc_dir.glob(f"*{ext}"))
+        if not candidates:
+            return ""
+
+        def _score(lrc_path: Path) -> int:
+            """匹配分: 文件名包含 mp3 名 +5, LRC 头 ti 包含 mp3 名 +3"""
+            score = 0
+            # 去掉哈希前缀 ({12字符}_{原名}.lrc)
+            stem = lrc_path.name
+            if "_" in stem and len(stem.split("_", 1)[0]) == 12:
+                stem = stem.split("_", 1)[1]
+            stem_no_ext = Path(stem).stem
+            if mp3_name in stem_no_ext or stem_no_ext in mp3_name:
+                score += 5
+            # 读 LRC 头 [ti:xxx]
+            try:
+                content = lrc_path.read_text(encoding="utf-8", errors="ignore")[:500]
+                import re as _re
+                ti_match = _re.search(r"\[ti:(.+?)\]", content)
+                if ti_match and mp3_name in ti_match.group(1):
+                    score += 3
+            except Exception:
+                pass
+            return score
+
+        scored = [(s, p) for s, p in ((_score(p), p) for p in candidates) if s > 0]
+        if not scored:
+            return ""
+        scored.sort(key=lambda x: -x[0])
+        best_lrc = scored[0][1]
+
+        try:
+            parsed = parse_lyrics_file(str(best_lrc))
+            text = format_for_planner(parsed)
+            if text:
+                logger.info(
+                    f"_find_matching_lrc: matched {best_lrc.name} "
+                    f"(score={scored[0][0]}) for {uploaded_audio_file.name} "
+                    f"({len(text)} chars)"
+                )
+                return text
+        except Exception as parse_exc:
+            logger.warning(f"_find_matching_lrc: parse failed for {best_lrc}: {parse_exc}")
+
+        return ""
+    except Exception as exc:
+        logger.warning(f"_find_matching_lrc: unexpected error: {exc}")
+        return ""
+
+
 def _run_audio_mv_analysis(
     uploaded_audio_file,
     lyrics_text: str = "",
@@ -4109,7 +4191,23 @@ def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice")
         """widget 实例化前调用, 在这里调分析服务写 session_state 安全"""
         with st.spinner(tr("Analyze Music Running")):
             try:
-                result = _run_audio_mv_analysis(uploaded_file)
+                # 老杨 2026-08-15 23:23 拍板: WebUI 上传 mp3 后, 自动找匹配 lrc 加载歌词
+                # 根因: 不加载歌词, mv_planner 拿不到 "半生烟雨走天涯" 等古典意象,
+                #       LLM 只看音频特征, 输出"golden hour / wheat field" 等西式场景.
+                # 修法: 按 mp3 md5[:12] (跟 LRC 上传时 webui/Main.py:4943 同一算法) 
+                #       去 storage/lrc/{hash}_*.lrc 找匹配文件, 读到歌词文本传下去.
+                lyrics_text = _find_matching_lrc_for_uploaded_audio(uploaded_file)
+                if lyrics_text:
+                    logger.info(
+                        f"mv_audio_analysis: auto-loaded lyrics "
+                        f"({len(lyrics_text)} chars) from matching LRC"
+                    )
+                else:
+                    logger.info(
+                        "mv_audio_analysis: no matching LRC found, "
+                        "mv_planner will fall back to audio-only mode"
+                    )
+                result = _run_audio_mv_analysis(uploaded_file, lyrics_text=lyrics_text)
                 st.session_state[_MV_AUDIO_SESSION_KEY] = result
                 # 老杨 8/8 21:31: 按段落拼接 - 存 plan + features 供视频生成用
                 st.session_state["_mv_current_plan"] = result.get("plan")
