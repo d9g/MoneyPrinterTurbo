@@ -126,6 +126,41 @@ class AudioFeatures:
             d["id3_metadata"] = self.id3_metadata.to_dict()
         return d
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "AudioFeatures":
+        """从 dict 还原 AudioFeatures (老杨 8/17 21:23 修复)
+        背景: WebUI session_state 里 features 是 JSON 序列化后的 dict, 直接传给 mureka_prompts 会报 'dict has no attribute vocal_type'.
+        每个嵌套 dataclass 都递归还原, 嵌套列表也还原.
+
+        Args:
+            d: dict (to_dict 输出来的格式)
+
+        Returns:
+            AudioFeatures dataclass (嵌套字段全转 dataclass)
+        """
+        if not d:
+            # 兑底: 构造最小可用 AudioFeatures
+            return cls(
+                duration_seconds=0.0,
+                tempo=TempoInfo(bpm=0, tempo_class="—", tempo_italian="—", tempo_description="—"),
+                key_info=KeyInfo(key="—", key_chinese="—", key_description="—", confidence=0),
+                pitch_range=PitchRange(low_midi=0, high_midi=0, low_note="—", high_note="—", range_semitones=0),
+                dynamic=DynamicInfo(rms_db=-60, dynamic_range_db=0, dynamic_class="—", dynamic_mark="—"),
+                spectral=SpectralInfo(brightness_hz=0, spectral_centroid_mean=0),
+                sections=[],
+            )
+        return cls(
+            duration_seconds=d.get("duration_seconds", 0),
+            tempo=TempoInfo(**d["tempo"]) if isinstance(d.get("tempo"), dict) else d.get("tempo"),
+            key_info=KeyInfo(**d["key_info"]) if isinstance(d.get("key_info"), dict) else d.get("key_info"),
+            pitch_range=PitchRange(**d["pitch_range"]) if isinstance(d.get("pitch_range"), dict) else d.get("pitch_range"),
+            dynamic=DynamicInfo(**d["dynamic"]) if isinstance(d.get("dynamic"), dict) else d.get("dynamic"),
+            spectral=SpectralInfo(**d["spectral"]) if isinstance(d.get("spectral"), dict) else d.get("spectral"),
+            sections=[SectionInfo(**s) if isinstance(s, dict) else s for s in (d.get("sections") or [])],
+            chorus_segments=[ChorusSegment(**c) if isinstance(c, dict) else c for c in (d.get("chorus_segments") or [])],
+            style=StyleInfo(**d["style"]) if isinstance(d.get("style"), dict) else d.get("style"),
+        )
+
     def feature_vector(self) -> List[float]:
         """Diana 3.4: 用于相似度计算的特征向量 (6 维)
         Returns:

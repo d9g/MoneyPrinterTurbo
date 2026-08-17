@@ -3465,18 +3465,9 @@ def _render_mureka_prompts_section(features: dict, version: int):
     try:
         from app.services.audio.mureka_prompts import generate_mureka_prompts
         from app.services.audio.models import AudioFeatures as AudioFeaturesDC
-        # dict -> dataclass (DataClass 可以 from dict via 自定义构造)
-        af = AudioFeaturesDC(
-            duration_seconds=features.get("duration_seconds", 0),
-            tempo=features.get("tempo", {}),
-            key_info=features.get("key_info", {}),
-            pitch_range=features.get("pitch_range", {}),
-            dynamic=features.get("dynamic", {}),
-            spectral=features.get("spectral", {}),
-            sections=features.get("sections", []),
-            chorus_segments=features.get("chorus_segments", []),
-            style=features.get("style", {}),
-        )
+        # 老杨 8/17 21:23 修复: 用 from_dict() 递归还原嵌套 dataclass
+        # 之前直接传 dict, style.vocal_type 等嵌套属性访问会报 'dict has no attribute'
+        af = AudioFeaturesDC.from_dict(features) if isinstance(features, dict) else features
         prompts = generate_mureka_prompts(af)
     except Exception as exc:
         st.warning(f"无法生成 Mureka 提示词: {type(exc).__name__}: {exc}")
