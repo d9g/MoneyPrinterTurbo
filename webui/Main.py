@@ -3444,6 +3444,103 @@ def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dic
     return False, latest, "cache_fresh"
 
 
+def _render_mureka_prompts_section(features: dict, version: int):
+    """老杨 2026-08-17 16:08 拍板: 弹窗内增加 AI 歌曲提示词 (Mureka) 折叠段
+
+    读取 features → 调用 generate_mureka_prompts() 生成 4 个提示词
+    - zh_short / zh_long (中文精简 + 详细)
+    - en_short / en_long (英文精简 + 详细, 意译)
+
+    UI 布局 (st.expander, 默认折叠):
+    - 详细程度 radio (精简 / 详细) - 动态切换同一特征下的两种粒度
+    - 中文代码块 + ️一键复制 (st.code)
+    - 英文代码块 + 一键复制
+    - 应用到视频脚本按钮 (复用现有 _apply_keywords_callback)
+
+    Args:
+        features: AudioFeatures dict (从 session 里读)
+        version: 源版本号 (写入 _MV_PENDING_APPLY_KEY 透传)
+    """
+    # 1. features -> AudioFeatures dataclass (mureka_prompts 需要 dataclass)
+    try:
+        from app.services.audio.mureka_prompts import generate_mureka_prompts
+        from app.services.audio.models import AudioFeatures as AudioFeaturesDC
+        # dict -> dataclass (DataClass 可以 from dict via 自定义构造)
+        af = AudioFeaturesDC(
+            duration_seconds=features.get("duration_seconds", 0),
+            tempo=features.get("tempo", {}),
+            key_info=features.get("key_info", {}),
+            pitch_range=features.get("pitch_range", {}),
+            dynamic=features.get("dynamic", {}),
+            spectral=features.get("spectral", {}),
+            sections=features.get("sections", []),
+            chorus_segments=features.get("chorus_segments", []),
+            style=features.get("style", {}),
+        )
+        prompts = generate_mureka_prompts(af)
+    except Exception as exc:
+        st.warning(f"无法生成 Mureka 提示词: {type(exc).__name__}: {exc}")
+        return
+
+    # 2. 详细程度 radio (每个 session 独立)
+    detail_key = "mv_dlg_mureka_detail"
+    if detail_key not in st.session_state:
+        st.session_state[detail_key] = "short"
+    detail = st.radio(
+        "详细程度",
+        options=["short", "long"],
+        format_func=lambda x: "精简 ~6 词" if x == "short" else "详细 ~9 词",
+        index=0 if st.session_state[detail_key] == "short" else 1,
+        key=detail_key,
+        horizontal=True,
+        help="精简用于快速生成;详细用于精细控制 song structure",
+    )
+
+    # 3. 中文版 + 复制
+    zh_text = prompts["zh_short"] if detail == "short" else prompts["zh_long"]
+    st.markdown("**简体中文**")
+    st.code(zh_text, language=None)
+
+    # 4. 英文版 + 复制
+    en_text = prompts["en_short"] if detail == "short" else prompts["en_long"]
+    st.markdown("**English Version**")
+    st.code(en_text, language=None)
+
+    st.caption(
+        "💡 中英双版可用于 Mureka / Suno / Udio 等 AI 歌曲生成。英文版为意译"
+        "（老杨原话:warm/intimate/Chinese folk singer style raw vocal quality）"
+    )
+
+    # 5. 应用按钮 - 把简体中文版词条加入 video_terms
+    def _apply_mureka_keywords_callback(zh_short: str, zh_long: str, ver: int):
+        pending = st.session_state.get(_MV_PENDING_APPLY_KEY) or {}
+        # 拆逗号 → 词条列表
+        new_terms = [t.strip() for t in zh_short.split(",") if t.strip()]
+        if not new_terms:
+            return
+        existing_terms = pending.get("video_terms_append", "")
+        new_terms_str = ", ".join(new_terms)
+        if existing_terms.strip():
+            pending["video_terms_append"] = (
+                existing_terms.rstrip().rstrip(",") + ", " + new_terms_str
+            )
+        else:
+            pending["video_terms_append"] = new_terms_str
+        pending["keyword_count"] = pending.get("keyword_count", 0) + len(new_terms)
+        pending["source_version"] = pending.get("source_version", ver)
+        st.session_state[_MV_PENDING_APPLY_KEY] = pending
+        st.rerun(scope="app")
+
+    st.button(
+        "应用到视频脚本关键词",
+        key="mv_dlg_apply_mureka",
+        use_container_width=True,
+        type="secondary",
+        on_click=_apply_mureka_keywords_callback,
+        args=(prompts["zh_short"], prompts["zh_long"], version),
+    )
+
+
 def _format_audio_features_for_humans(features: dict) -> str:
     """曲调特征 → 人类可读的中文摘要（含专业词汇）"""
     tempo = features.get("tempo", {})
@@ -3911,6 +4008,13 @@ def _render_audio_analysis_dialog():
             use_container_width=True,
             on_click=_close_dialog,
         )
+
+    st.divider()
+
+    # === AI 歌曲提示词 (Mureka) — 老杨 8/17 16:08 拍板 ===
+    # 折叠段默认收起, 不抩高弹窗. 详细程度 radio 动态切换精简/详细.
+    with st.expander("🎵 AI 歌曲提示词 (Mureka)", expanded=False):
+        _render_mureka_prompts_section(features, version)
 
     st.divider()
 
