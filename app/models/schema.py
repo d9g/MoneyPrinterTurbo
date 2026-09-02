@@ -46,8 +46,17 @@ class VideoAspect(str, Enum):
         raise ValueError(f"unsupported video aspect: {self}")
 
 
-class _Config:
-    arbitrary_types_allowed = True
+class VideoFitMode(str, Enum):
+    """How source clips with a different aspect ratio fill the output canvas."""
+
+    cover = "cover"
+    contain = "contain"
+
+
+_Config = ConfigDict(
+    arbitrary_types_allowed=True,
+    # Note: ensure your key names match renamed V2 parameters if needed
+)
 
 
 @pydantic.dataclasses.dataclass(config=_Config)
@@ -80,6 +89,7 @@ class VideoParams(BaseModel):
     video_script: str = ""  # Script used to generate the video
     video_terms: Optional[str | list] = None  # Keywords used to generate the video
     video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value
+    video_fit_mode: VideoFitMode = VideoFitMode.cover
     video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random.value
     video_transition_mode: Optional[VideoTransitionMode] = None
     video_clip_duration: int = Field(default=5, ge=1)
@@ -91,9 +101,11 @@ class VideoParams(BaseModel):
     video_materials: Optional[List[MaterialInfo]] = (
         None  # Materials used to generate the video
     )
-    
-    custom_audio_file: Optional[str] = None  # Custom audio file path, will ignore TTS and can still use Whisper subtitles
-    # 老杨 8/8 21:09: 高潮段独立 MV - 截取音频 [start, end] 区间（秒）
+
+    custom_audio_file: Optional[str] = (
+        None  # Custom audio file path, will ignore TTS and can still use Whisper subtitles
+    )
+    # 高潮段独立 MV：截取音频 [start, end] 区间（秒），为空则使用整段音频
     audio_clip_range_start: Optional[float] = None
     audio_clip_range_end: Optional[float] = None
     video_language: Optional[str] = ""  # auto detect
@@ -110,8 +122,11 @@ class VideoParams(BaseModel):
     sonilo_bgm_prompt: str = Field(default="", max_length=2000)
 
     subtitle_enabled: Optional[bool] = True
-    lrc_file: Optional[str] = None  # Diana 8/8: LRC 歌词文件路径 (精准对齐字幕时间轴)
-    subtitle_position: Optional[str] = config.ui.get("subtitle_position", "bottom")  # top, bottom, center, custom
+    # LRC 歌词文件路径：提供后按歌词时间戳生成字幕，比 TTS/Whisper 推断更精确
+    lrc_file: Optional[str] = None
+    subtitle_position: Optional[str] = config.ui.get(
+        "subtitle_position", "bottom"
+    )  # top, bottom, center, custom
     custom_position: float = config.ui.get("custom_position", 70.0)
     font_name: Optional[str] = "STHeitiMedium.ttc"
     text_fore_color: Optional[str] = "#FFFFFF"
@@ -212,12 +227,6 @@ class VideoSocialMetadataParams:
     platform: Optional[str] = Field(default="tiktok", max_length=64)
 
 
-class BaseResponse(BaseModel):
-    status: int = 200
-    message: Optional[str] = "success"
-    data: Any = None
-
-
 class TaskVideoRequest(VideoParams, BaseModel):
     pass
 
@@ -238,24 +247,18 @@ class VideoSocialMetadataRequest(VideoSocialMetadataParams, BaseModel):
     pass
 
 
-######################################################################################################
-######################################################################################################
-######################################################################################################
-######################################################################################################
-class TaskResponse(BaseResponse):
-    class TaskResponseData(BaseModel):
-        task_id: str
+# ---------------------------
+# ----- RESPONSE MODELS -----
+# ---------------------------
+class BaseResponse(BaseModel):
+    status: int = 200
+    message: Optional[str] = "success"
+    data: Any = None
 
-    data: TaskResponseData
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": 200,
-                "message": "success",
-                "data": {"task_id": "6c85c8cc-a77a-42b9-bc30-947815aa0558"},
-            },
-        }
+# ---- DATA MODELS ----
+class TaskResponseData(BaseModel):
+    task_id: str
 
 
 class TaskStatusData(BaseModel):
@@ -284,6 +287,59 @@ class TaskListData(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class VideoScriptData(BaseModel):
+    video_script: str
+
+
+class VideoTermsData(BaseModel):
+    video_terms: List[str]
+
+
+class VideoSocialMetadataData(BaseModel):
+    title: str
+    caption: str
+    hashtags: List[str]
+
+
+class FileData(BaseModel):
+    name: str
+    size: int
+    file: str
+
+
+class BgmRetrieveData(BaseModel):
+    files: List[FileData]
+
+
+class BgmUploadData(BaseModel):
+    file: str
+
+
+class VideoMaterialRetrieveData(BaseModel):
+    files: List[FileData]
+
+
+class VideoMaterialUploadData(BaseModel):
+    file: str
+
+
+# ---- RESPONSE MODELS ----
+class TaskResponse(BaseResponse):
+    data: TaskResponseData
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": 200,
+                "message": "success",
+                "data": {
+                    "task_id": "6c85c8cc-a77a-42b9-bc30-947815aa0558",
+                },
+            },
+        }
+    )
 
 
 class TaskQueryResponse(BaseResponse):
@@ -355,28 +411,24 @@ class TaskListResponse(BaseResponse):
 
 
 class TaskDeletionResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: None = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
-                "data": {
-                    "state": 1,
-                    "progress": 100,
-                    "videos": [
-                        "http://127.0.0.1:8080/tasks/6c85c8cc-a77a-42b9-bc30-947815aa0558/final-1.mp4"
-                    ],
-                    "combined_videos": [
-                        "http://127.0.0.1:8080/tasks/6c85c8cc-a77a-42b9-bc30-947815aa0558/combined-1.mp4"
-                    ],
-                },
+                "data": None,
             },
         }
+    )
 
 
 class VideoScriptResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: VideoScriptData
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
@@ -385,22 +437,28 @@ class VideoScriptResponse(BaseResponse):
                 },
             },
         }
+    )
 
 
 class VideoTermsResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: VideoTermsData
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
                 "data": {"video_terms": ["sky", "tree"]},
             },
         }
+    )
 
 
 class VideoSocialMetadataResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: VideoSocialMetadataData
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
@@ -411,11 +469,14 @@ class VideoSocialMetadataResponse(BaseResponse):
                 },
             },
         }
+    )
 
 
 class BgmRetrieveResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: BgmRetrieveData
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
@@ -430,21 +491,28 @@ class BgmRetrieveResponse(BaseResponse):
                 },
             },
         }
+    )
 
 
 class BgmUploadResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: BgmUploadData
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
                 "data": {"file": "4fca18fce7344f3aa824777a40d45c8c.mp3"},
             },
         }
+    )
+
 
 class VideoMaterialRetrieveResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: VideoMaterialRetrieveData
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
@@ -459,10 +527,14 @@ class VideoMaterialRetrieveResponse(BaseResponse):
                 },
             },
         }
+    )
+
 
 class VideoMaterialUploadResponse(BaseResponse):
-    class Config:
-        json_schema_extra = {
+    data: VideoMaterialUploadData
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": 200,
                 "message": "success",
@@ -471,3 +543,4 @@ class VideoMaterialUploadResponse(BaseResponse):
                 },
             },
         }
+    )

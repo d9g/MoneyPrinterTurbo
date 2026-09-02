@@ -14,7 +14,7 @@ Provide a video <b>topic</b> or <b>keyword</b>, and MoneyPrinterTurbo will gener
 <a href="https://trendshift.io/repositories/8731" target="_blank"><img src="https://trendshift.io/api/badge/repositories/8731" alt="harry0703%2FMoneyPrinterTurbo | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://www.star-history.com/harry0703/moneyprinterturbo"><img src="https://api.star-history.com/badge?repo=harry0703/MoneyPrinterTurbo" alt="Star History Rank" style="height: 55px;" height="55"/></a>
 
-English | [简体中文](README.md) | [Releases](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
+English | [简体中文](README.md) | [日本語](README-ja.md) | [Releases](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
 
 </div>
 
@@ -33,12 +33,12 @@ English | [简体中文](README.md) | [Releases](https://github.com/harry0703/Mo
 ## Special Thanks ❤️
 
 <div align="center">
-  <a href="https://platform.kimi.ai/?aff=MoneyPrinterTurbo" target="_blank"><img src="https://gcdn.moonshot.cn/growth-cdn/sponsor/kimi-en.png" alt="Kimi sponsors MoneyPrinterTurbo" width="100%"></a>
+  <a href="https://platform.kimi.ai?track_id=track-f6b0a640d35c41deb03b247242a1058c&aff=moneyprinterturbo" target="_blank"><img src="https://gcdn.moonshot.cn/growth-cdn/sponsor/kimi-en.png" alt="Kimi sponsors MoneyPrinterTurbo" width="100%"></a>
 </div>
 
-Thanks to [Kimi](https://platform.kimi.ai/?aff=MoneyPrinterTurbo) for sponsoring this project! [Kimi K3](https://www.kimi.com/blog/kimi-k3?aff=MoneyPrinterTurbo) is Moonshot AI's most capable model and the world's first open 3T-class model. With native vision and a 1-million-token context window, K3 delivers frontier performance across knowledge work, reasoning, and long-horizon tasks. Within MoneyPrinterTurbo, K3 powers video creation by writing scripts and extracting the search keywords that determine the final footage—the better it understands the content, the more relevant the results.
+Thanks to [Kimi](https://platform.kimi.ai?track_id=track-f6b0a640d35c41deb03b247242a1058c&aff=moneyprinterturbo) for sponsoring this project! [Kimi K3](https://www.kimi.com/blog/kimi-k3?aff=moneyprinterturbo) is Moonshot AI's most capable model and the world's first open 3T-class model. With native vision and a 1-million-token context window, K3 delivers frontier performance across knowledge work, reasoning, and long-horizon tasks. Within MoneyPrinterTurbo, K3 powers video creation by writing scripts and extracting the search keywords that determine the final footage—the better it understands the content, the more relevant the results.
 
-**MoneyPrinterTurbo already supports Kimi. Visit the Kimi Open Platform ([中文站](https://platform.kimi.com/?aff=MoneyPrinterTurbo) | [Global](https://platform.kimi.ai/?aff=MoneyPrinterTurbo)) to try the API, or explore the [Kimi Code subscription](https://www.kimi.com/code?aff=MoneyPrinterTurbo).**
+**Exclusive offer for MoneyPrinterTurbo users: new users who register through the dedicated link receive bonus API credit equal to 10% of their first successful top-up, up to CNY 1,000. The offer ends September 30, 2026. Visit the Kimi Open Platform ([中文站](https://platform.kimi.com?track_id=track-2f5441d6ffd84c509dd079d78e9db5dc&aff=moneyprinterturbo) | [Global](https://platform.kimi.ai?track_id=track-f6b0a640d35c41deb03b247242a1058c&aff=moneyprinterturbo)) to try the API.**
 
 <br>
 <table align="center">
@@ -48,7 +48,7 @@ Thanks to [Kimi](https://platform.kimi.ai/?aff=MoneyPrinterTurbo) for sponsoring
       <a href="https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=MoneyPrinterTurbo&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=MoneyPrinterTurbo"><strong>BytePlus ModelArk</strong></a>
     </td>
     <td align="left">
-      Thanks to Dola Seed for sponsoring this project! <a href="https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=MoneyPrinterTurbo&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=MoneyPrinterTurbo">Dola Seed 2.0</a> is a full-modal general large model independently developed by ByteDance for the global market. Built on a unified multimodal architecture, it supports joint understanding and generation of text, images, audio, and video. It natively enables agent collaboration, with strong reasoning, long-task execution, tool integration, and coding capabilities. Register via this link to get 500,000 tokens of free inference quota per model.
+      Thanks to ByteDance VolcEngine for sponsoring this project! VolcEngine Ark's Agent/Coding Plan for leading Chinese models starts at CNY 9.9 for first-time buyers and supports GLM-5.3, Kimi-K3, DeepSeek, MiniMax, Doubao, and more. New users receive 25 million free tokens. One unified API is designed for coding and agent development. --&gt; <a href="https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=MoneyPrinterTurbo&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=MoneyPrinterTurbo">Visit now</a>
     </td>
   </tr>
   <tr>
@@ -62,29 +62,23 @@ Thanks to [Kimi](https://platform.kimi.ai/?aff=MoneyPrinterTurbo) for sponsoring
   </tr>
   <tr>
     <td align="center" width="120">
-      <a href="https://cubence.com/signup?code=SCE1CJPE&source=mpt"><img src="docs/sponsors/cubence-logo.png" alt="Cubence" height="40"></a><br>
-      <a href="https://cubence.com/signup?code=SCE1CJPE&source=mpt"><strong>Cubence</strong></a>
+      <a href="https://go.apimart.ai/gh-moneyprinterturbo"><img src="docs/sponsors/apimart-logo.png" alt="APIMart" width="100"></a>
     </td>
     <td align="left">
-      Thanks to <a href="https://cubence.com/signup?code=SCE1CJPE&source=mpt">Cubence</a> for supporting this project. Cubence is a platform focused on AI model API access, helping developers and teams call models in a stable and convenient way. Since its launch in September 2025, Cubence has supported API access scenarios for Claude Code, Codex, Gemini, and other AI models and developer tools, making it suitable for users who need unified management and access to multiple model capabilities. Cubence offers MoneyPrinterTurbo users an exclusive discount code: <a href="https://cubence.com/signup?code=SCE1CJPE&source=mpt"><code>MPT</code></a>. Use it on your first purchase to get <a href="https://cubence.com/signup?code=SCE1CJPE&source=mpt">10% off</a>.
+      Thanks to <a href="https://go.apimart.ai/gh-moneyprinterturbo">APIMart</a> for sponsoring this project! APIMart is a low-cost API platform for AI image &amp; video generation — <strong>GPT-Image-2 from &#36;0.006/image, 160+ images per dollar</strong>. <strong>One async API covers both image and video—switch models without changing code.</strong> Submit a task, get an ID, and fetch results via polling or callback. Batch tens of thousands of images without timeouts. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/gh-moneyprinterturbo">sign up here</a> to get started.
     </td>
   </tr>
   <tr>
     <td align="center" width="120">
-      <a href="https://www.quya.org/?promo=AFF1"><img src="docs/sponsors/0029-logo.jpg" alt="0029.org" height="56"></a><br>
-      <a href="https://www.quya.org/?promo=AFF1"><strong>0029.org</strong></a>
+      <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link"><img src="docs/sponsors/infistar-logo.svg" alt="Infistar.ai" height="56"></a><br>
+      <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link"><strong>Infistar.ai</strong></a>
     </td>
     <td align="left">
-      Thanks to <a href="https://www.quya.org/?promo=AFF1">0029.org</a> for sponsoring this project! 0029.org is a one-stop AI API relay platform offering the latest models for Claude Code, Codex, and Gemini. It provides stable, responsive, and cost-effective access through monthly subscriptions or pay-as-you-go plans, supports both individual and enterprise users, and is directly accessible from mainland China without a VPN. Pricing starts at 1.2% of official rates. <a href="https://www.quya.org/?promo=AFF1">Visit 0029.org</a>.
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="120">
-      <a href="https://ergouapi.com/r/gh-moneyprinterturbo"><img src="docs/sponsors/ergou-api-logo.png" alt="Ergou API" height="56"></a><br>
-      <a href="https://ergouapi.com/r/gh-moneyprinterturbo"><strong>Ergou API</strong></a>
-    </td>
-    <td align="left">
-      Thanks to <a href="https://ergouapi.com/r/gh-moneyprinterturbo">Ergou API</a> for sponsoring this project! Ergou API: The rock-solid AI API Gateway. Unlock ultra-low multipliers (0.1x - 0.2x) across the board. We provide 100% genuine, unfiltered endpoints for top-tier LLMs including Claude, GPT, and Gemini. Powered by premium IPLC routes and dual residential ISP redundancy, Ergou guarantees battle-tested stability and ultra-low latency for your global traffic. Built for developers and studios. <a href="https://ergouapi.com/r/gh-moneyprinterturbo">Sign up and start building today</a>.
+      Thanks to <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link">Infistar.ai</a> for sponsoring this project!<br>
+      ⚡ Low-cost, reliable access: pricing starts at just 10% of official rates, with transparent model multipliers and detailed usage records. Dynamic routing across multiple providers helps avoid rate limits and unexpected service interruptions.<br>
+      🧠 Leading LLMs for script creation: access OpenAI, Claude, Google Gemini, DeepSeek, Qwen, and other leading models through an OpenAI-compatible API. Infistar.ai provides low-latency, high-concurrency support for MoneyPrinterTurbo's script generation and media keyword extraction workflows.<br>
+      🎨 A cutting-edge multimodal ecosystem: access leading image and video generation models including FLUX, Midjourney, Seedance, Kling, Sora, and Luma, all ready for the next generation of AI video creation.<br>
+      🎁 Exclusive benefits for MoneyPrinterTurbo users: sign up through the <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link">dedicated referral link</a> to receive [exclusive bonus credits / a first top-up offer] and start creating right away!
     </td>
   </tr>
   <tr>
@@ -110,22 +104,22 @@ Thanks to [Kimi](https://platform.kimi.ai/?aff=MoneyPrinterTurbo) for sponsoring
 ## Another Open-Source Project from the Creator: MangoDisk ⭐
 
 <p align="center">
-  <a href="https://github.com/harry0703/MangoDisk">
+  <a href="https://mangodisk.app">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://assets.mangodisk.app/images/readme/en-dark.jpg">
-      <source media="(prefers-color-scheme: light)" srcset="https://assets.mangodisk.app/images/readme/en-light.jpg">
-      <img src="https://assets.mangodisk.app/images/readme/en-light.jpg" width="900" alt="MangoDisk open-source disk cleaner and disk space analyzer">
+      <source media="(prefers-color-scheme: dark)" srcset="https://assets.mangodisk.app/images/screenshots/en/dark-01-deep-cleanup.jpg">
+      <source media="(prefers-color-scheme: light)" srcset="https://assets.mangodisk.app/images/screenshots/en/light-01-deep-cleanup.jpg">
+      <img src="https://assets.mangodisk.app/images/screenshots/en/light-01-deep-cleanup.jpg" width="900" alt="MangoDisk Deep Cleanup interface">
     </picture>
   </a>
 </p>
 
 <p align="center">
-  <strong>A safety-first, open-source disk cleaner and disk space analyzer for macOS and Windows</strong><br>
-  Find large and duplicate files, clean caches and app leftovers, and reclaim disk space safely.
+  <strong>An open-source disk cleaner, storage analyzer, and system optimizer for macOS and Windows</strong><br>
+  Clean caches, large files, duplicates, and app leftovers; analyze disk usage; manage apps and startup items; and maintain your system.
 </p>
 
 <p align="center">
-  <a href="https://github.com/harry0703/MangoDisk">View the Open-Source Project</a>
+  <a href="https://mangodisk.app">Visit the MangoDisk Website</a> · <a href="https://github.com/harry0703/MangoDisk">View on GitHub</a>
 </p>
 
 ---
@@ -141,12 +135,15 @@ Thanks to [Kimi](https://platform.kimi.ai/?aff=MoneyPrinterTurbo) for sponsoring
       satisfactory one
 - [x] Supports setting the **duration of video clips**, facilitating adjustments to material switching frequency
 - [x] Supports **multilingual video script** generation
-- [x] Supports **Edge TTS**, **Azure Speech**, **SiliconFlow**, **Google Gemini**, **Xiaomi MiMo**, **ElevenLabs**, and **Chatterbox** speech synthesis with real-time previews
+- [x] Supports **Edge TTS**, **Azure Speech**, **SiliconFlow**, **Google Gemini**, **Xiaomi MiMo**, **ElevenLabs**, **Chatterbox**, and **Fish Audio** speech synthesis with real-time previews
 - [x] Supports **subtitle generation** with configurable fonts, position, color, size, outline, and background styles
 - [x] Supports random or custom **background music** with adjustable volume
 - [x] Supports your own **local assets** and free-to-use HD footage from **Pexels**, **Pixabay**, and **Coverr**
-- [x] Supports leading model providers including **Kimi / Moonshot AI**, **OpenAI**, **Google Gemini**, **DeepSeek**, **Alibaba Cloud Qwen**, **Microsoft Azure OpenAI**, **ByteDance VolcEngine Ark**, **xAI Grok**, **MiniMax**, and **Xiaomi MiMo**, plus unified gateways, aggregators, and local runtimes such as **Cloudflare AI Gateway**, **Alibaba ModelScope**, **AIHubMix**, **AIML API**, **EvoLink**, **Ollama**, **OneAPI**, **LiteLLM**, **Groq**, and **Pollinations AI**
+- [x] Supports **AI-generated footage**: [WaveSpeed AI](https://wavespeed.ai) text-to-video models (Seedance by default) create brand-new visuals from your script keywords instead of relying on stock libraries
+- [x] Supports native **Volcano Engine Ark Seedance** text-to-video generation with configurable model/Endpoint ID, bounded polling, and paid-task confirmation
+- [x] Supports leading model providers including **Kimi / Moonshot AI**, **OpenAI**, **Anthropic Claude**, **Google Gemini**, **DeepSeek**, **Alibaba Cloud Qwen**, **Microsoft Azure OpenAI**, **ByteDance VolcEngine Ark**, **xAI Grok**, **MiniMax**, and **Xiaomi MiMo**, plus unified gateways, aggregators, and local runtimes such as **Cloudflare AI Gateway**, **Alibaba ModelScope**, **AIHubMix**, **AIML API**, **EvoLink**, **Ollama**, **OneAPI**, **LiteLLM**, **Groq**, and **Pollinations AI**
 - [x] Supports one-click **cross-platform publishing** to **TikTok**, **Instagram**, and **YouTube Shorts** after video generation
+- [x] Supports **exporting and importing generation settings** as a preset file, and backing up and restoring every **API key** from the settings dialog
 
 ## Gallery 🎬
 
@@ -283,6 +280,8 @@ Open your browser and visit http://127.0.0.1:8501
 
 Open your browser and visit http://127.0.0.1:8080/docs or http://127.0.0.1:8080/redoc
 
+> The API allows same-origin browser access by default. Set the `CORS_ALLOWED_ORIGINS` environment variable only when a separate browser frontend must call the API directly from another origin, for example `http://localhost:3000,https://frontend.example.com`. CORS does not affect curl, Postman, n8n, or other server-side clients.
+
 ### Manual Deployment 📦
 
 #### ① Create a Python Virtual Environment
@@ -359,6 +358,12 @@ command line. The simplest complete generation command is:
 uv run python cli.py --video-subject "How AI is changing everyday life"
 ```
 
+Subtitle style and voiceover options resolve in this order: **explicit CLI option >
+saved `[ui]` value in `config.toml` > built-in default**. Other generation settings,
+such as background music, video count, and paragraph count, are not inherited from
+the WebUI. If the WebUI is set to use uploaded audio, pass `--custom-audio-file`
+explicitly, since the uploaded path is not persisted.
+
 For the complete command reference, parameter descriptions, and usage instructions,
 run:
 
@@ -366,9 +371,32 @@ run:
 uv run python cli.py --help
 ```
 
+To run several tasks sequentially, pass a UTF-8 JSON array or JSONL manifest. CLI
+options act as defaults, and each object overrides fields from `VideoParams`:
+
+```json
+[
+  { "video_subject": "How solar panels work" },
+  { "video_subject": "How wind turbines work", "video_aspect": "16:9" }
+]
+```
+
+```shell
+uv run python cli.py --batch-file ./tasks.json --stop-at video
+```
+
+The manifest is resolved from the current working directory. Relative
+`custom_audio_file` and local `video_materials[].url` values inside it are resolved
+from the manifest's directory; file paths supplied as CLI defaults keep their normal
+current-working-directory semantics. A manifest is limited to 100 tasks and 1 MiB.
+All entries are validated before the first task starts, tasks continue after an
+individual runtime failure, and the command prints one JSON summary when finished.
+The summary contains `total`, `succeeded`, `failed`, and `tasks`; each task entry has
+`index`, `task_id`, `status`, `result`, `failed_stage`, and `error`.
+
 ## Voice Synthesis 🗣
 
-The default provider is the free **Edge TTS**, shown as **Azure TTS V1** in the WebUI. MoneyPrinterTurbo also supports **Azure TTS V2**, **SiliconFlow TTS**, **Google Gemini TTS**, **Xiaomi MiMo TTS**, **ElevenLabs TTS**, self-hosted **Chatterbox TTS**, and a no-voice mode.
+The default provider is the free **Edge TTS**, shown as **Azure TTS V1** in the WebUI. MoneyPrinterTurbo also supports **Azure TTS V2**, **SiliconFlow TTS**, **Google Gemini TTS**, **Xiaomi MiMo TTS**, **ElevenLabs TTS**, self-hosted **Chatterbox TTS**, **Fish Audio TTS**, and a no-voice mode.
 
 Select a provider and voice in the WebUI, then follow the on-screen instructions for any required credentials. Edge TTS does not require an API key; [Azure TTS V2](https://portal.azure.com/) and other cloud providers require credentials from their respective platforms. See the available Edge TTS voices in the [voice list](./docs/voice-list.txt).
 
@@ -434,6 +462,24 @@ upload_post_youtube_privacy_status = "public"
 ```
 
 Restart the app after saving. Generated videos will then be published automatically to the configured platforms. YouTube privacy can be set to `public`, `unlisted`, or `private`.
+
+</details>
+
+<details>
+<summary>How do I use the official Volcano Engine Ark Seedance provider?</summary>
+
+Create an [Ark API key](https://console.volcengine.com/ark/region:ark+cn-beijing/apikey), then configure the provider under `[app]`:
+
+```toml
+[app]
+volcengine_seedance_api_key = "your-ark-api-key"
+volcengine_seedance_model = "doubao-seedance-1-0-pro-250528"
+volcengine_seedance_base_url = "https://ark.cn-beijing.volces.com/api/v3"
+```
+
+When the dedicated config value is empty, `VOLCENGINE_ARK_API_KEY` is used, followed by the existing `volcengine_api_key` LLM setting. Select **Volcano Engine Seedance** as the video source and explicitly confirm paid generation before starting. CLI users must add `--confirm-seedance-charge`.
+
+The first integration supports text-to-video only. Every submitted clip is a paid asynchronous Ark task; the app polls the same task ID, stops submitting after an unknown state, and downloads only enough clips to cover the voiceover.
 
 </details>
 
