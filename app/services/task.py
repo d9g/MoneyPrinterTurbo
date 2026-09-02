@@ -4,6 +4,7 @@ import re
 import socket
 import threading
 import time
+from pathlib import Path
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from functools import partial
 from os import path
@@ -860,25 +861,64 @@ def generate_final_videos(
             utils.task_dir(task_id), f"combined-{index}.mp4"
         )
         logger.info(f"\n\n## combining video: {index} => {combined_video_path}")
-        video.combine_videos(
-            combined_video_path=combined_video_path,
-            video_paths=downloaded_videos,
-            audio_file=audio_file,
-            video_aspect=params.video_aspect,
-            video_fit_mode=params.video_fit_mode,
-            video_concat_mode=video_concat_mode,
-            video_transition_mode=video_transition_mode,
-            max_clip_duration=params.video_clip_duration,
-            threads=params.n_threads,
-            clip_speed=params.video_clip_speed,
-            # 老杨 8/8 21:09: 高潮段独立 MV - 截取音频区间
-            audio_clip_range=(
-                (params.audio_clip_range_start, params.audio_clip_range_end)
-                if params.audio_clip_range_start is not None
-                and params.audio_clip_range_end is not None
-                else None
-            ),
-        )
+        # 按段落拼接：使用 LLM video_prompts 按段独立下载拼接
+        if getattr(params, "use_segmented_concat", False):
+            from app.services.mv.segment_builder import build_segments
+            segments = build_segments(
+                plan=getattr(params, "mv_plan", None),
+                features=getattr(params, "mv_features", None),
+                audio_clip_range=(
+                    (params.audio_clip_range_start, params.audio_clip_range_end)
+                    if params.audio_clip_range_start is not None
+                    and params.audio_clip_range_end is not None
+                    else None
+                ),
+            )
+            logger.info(
+                f"segmented_concat: plan="
+                f"{len(getattr(params, 'mv_plan', {}).get('video_prompts', [])) if getattr(params, 'mv_plan', None) else 0} prompts, "
+                f"segments={len(segments)}"
+            )
+            if not segments:
+                logger.warning("segmented_concat: no segments built, fallback to standard combine_videos")
+            else:
+                video.combine_videos_segmented(
+                    combined_video_path=combined_video_path,
+                    segments=segments,
+                    audio_file=audio_file,
+                    video_aspect=params.video_aspect,
+                    video_concat_mode=video_concat_mode,
+                    video_transition_mode=video_transition_mode,
+                    max_clip_duration=params.video_clip_duration,
+                    threads=params.n_threads,
+                    clip_speed=params.video_clip_speed,
+                    audio_clip_range=(
+                        (params.audio_clip_range_start, params.audio_clip_range_end)
+                        if params.audio_clip_range_start is not None
+                        and params.audio_clip_range_end is not None
+                        else None
+                    ),
+                )
+        else:
+            video.combine_videos(
+                combined_video_path=combined_video_path,
+                video_paths=downloaded_videos,
+                audio_file=audio_file,
+                video_aspect=params.video_aspect,
+                video_fit_mode=params.video_fit_mode,
+                video_concat_mode=video_concat_mode,
+                video_transition_mode=video_transition_mode,
+                max_clip_duration=params.video_clip_duration,
+                threads=params.n_threads,
+                clip_speed=params.video_clip_speed,
+                # 高潮段独立 MV：截取音频区间
+                audio_clip_range=(
+                    (params.audio_clip_range_start, params.audio_clip_range_end)
+                    if params.audio_clip_range_start is not None
+                    and params.audio_clip_range_end is not None
+                    else None
+                ),
+            )
 
         _progress += 50 / params.video_count / 2
         sm.state.update_task(task_id, progress=_progress)
@@ -1295,8 +1335,10 @@ def _run_pipeline(
     loomloom_video_request: loomloom.LoomLoomConfirmedVideoRequest | None = None,
     allow_server_file_input: bool = False,
 ):
-    logger.info(f"start task: {task_id}, stop_at: {stop_at}")
+    # 老杨 8/9 11:01 拍板: 加阶段日志, 让你能直接看 main.py 端进度
+    logger.info(f"🎬 [_run_pipeline] START task={task_id} stop_at={stop_at} subject={params.video_subject[:50]}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
+    logger.info(f"  [5%] 预检完成")
 
     if (
         stop_at in {"materials", "video"}
@@ -1385,6 +1427,7 @@ def _run_pipeline(
         )
         return _mark_task_failed(task_id, "script", error)
 
+    logger.info(f"  [10%] 文案生成完成 (skip={stop_at == 'script'}, next: 配音)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=10)
 
     if stop_at == "script":
@@ -1412,6 +1455,7 @@ def _run_pipeline(
         )
         return {"script": video_script, "terms": video_terms}
 
+    logger.info(f"  [20%] 关键词提取完成 (terms={len(video_terms)} 个)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=20)
 
     # 3. Generate audio
@@ -1429,6 +1473,7 @@ def _run_pipeline(
             "failed to prepare narration audio",
         )
 
+    logger.info(f"  [30%] 配音/TTS 完成 (next: 字幕)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=30)
 
     if stop_at == "audio":
@@ -1454,6 +1499,7 @@ def _run_pipeline(
         )
         return {"subtitle_path": subtitle_path}
 
+    logger.info(f"  [40%] 字幕生成完成 (next: 素材下载)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=40)
 
     # 5. Get video materials
@@ -1480,6 +1526,7 @@ def _run_pipeline(
         )
         return {"materials": downloaded_videos}
 
+    logger.info(f"  [50%] 素材下载完成 (count={len(downloaded_videos)}, next: 拼接)")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=50)
 
     # 仅完整视频生成流程才需要处理视频拼接模式；
@@ -1506,6 +1553,11 @@ def _run_pipeline(
             "failed to generate final video",
         )
 
+    for fp in final_video_paths:
+        size_mb = Path(fp).stat().st_size / 1024 / 1024 if Path(fp).exists() else 0
+        logger.success(
+            f"  [100%] 🎥 final video: {fp} ({size_mb:.1f} MB)"
+        )
     logger.success(
         f"task {task_id} finished, generated {len(final_video_paths)} videos."
     )

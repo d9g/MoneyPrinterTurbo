@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Optional
 from urllib.parse import quote_plus, urlencode, urlsplit, urlunsplit
 
 import requests
@@ -1732,15 +1732,28 @@ def download_videos(
     audio_duration: float = 0.0,
     max_clip_duration: int = 5,
     match_script_order: bool = False,
+    fallback_sources: Optional[List[str]] = None,
 ) -> List[str]:
+    """下载视频素材.
+
+    Args:
+        fallback_sources: 主源 (source) 搜不到足够结果时, 依次试这些源.
+                          老杨 8/9 08:19 拍板: Pexels 404 率高, 需 fallback.
+                          默认: ["pixabay", "coverr"]
+                          传 None 禁用 fallback.
+    """
+    if fallback_sources is None:
+        fallback_sources = ["pixabay", "coverr"]
+
     # === 关键词安全过滤 (Diana 8/8) ===
     # 暗藏规则: 避免人脸特写 + 静态特写 + 摇曳模糊优先
     search_terms = _expand_search_terms_for_safety(search_terms)
     logger.info(
-        f"[download_videos] after safety filter, total {len(search_terms)} search variants"
+        f"[download_videos] after safety filter, total {len(search_terms)} search variants, "
+        f"primary_source={source!r}, fallback_sources={fallback_sources}"
     )
 
-    provider = "pexels"
+    provider = source
     remote_search_videos = search_videos_pexels
     if source == "pixabay":
         provider = "pixabay"
@@ -1748,6 +1761,13 @@ def download_videos(
     elif source == "coverr":
         provider = "coverr"
         remote_search_videos = search_videos_coverr
+
+    # Fallback 源 → 搜索函数映射
+    _SOURCE_TO_SEARCH = {
+        "pexels": search_videos_pexels,
+        "pixabay": search_videos_pixabay,
+        "coverr": search_videos_coverr,
+    }
 
     def search_videos(
         search_term: str,
@@ -1819,22 +1839,64 @@ def download_videos(
     valid_video_items = []
     valid_video_urls = []
     found_duration = 0.0
-    for search_term in search_terms:
-        video_items = search_videos(
-            search_term=search_term,
-            minimum_duration=max_clip_duration,
-            video_aspect=video_aspect,
-        )
-        logger.info(f"found {len(video_items)} videos for '{search_term}'")
+    used_sources = []  # 记录哪些源实际被用了 (调试用)
 
-        for item in video_items:
-            if item.url not in valid_video_urls:
-                valid_video_items.append(item)
-                valid_video_urls.append(item.url)
-                found_duration += item.duration
+    def _run_search(search_func, source_name: str):
+        """跑一轮搜索, 累加结果到 valid_video_items. 返回本次新增 duration."""
+        nonlocal found_duration
+        added = 0.0
+        for search_term in search_terms:
+            video_items = search_func(
+                search_term=search_term,
+                minimum_duration=max_clip_duration,
+                video_aspect=video_aspect,
+            )
+            logger.info(
+                f"[{source_name}] found {len(video_items)} videos for '{search_term}'"
+            )
+            for item in video_items:
+                if item.url not in valid_video_urls:
+                    valid_video_items.append(item)
+                    valid_video_urls.append(item.url)
+                    found_duration += item.duration
+                    added += item.duration
+        if added > 0:
+            used_sources.append(source_name)
+        return added
+
+    # 主源一轮
+    _run_search(search_videos, provider)
+
+    # Fallback: 主源不够素材时 (老杨 8/9 08:19 拍板)
+    if fallback_sources and found_duration < audio_duration:
+        logger.warning(
+            f"[{provider}] found {found_duration:.1f}s < required {audio_duration:.1f}s, "
+            f"try fallback sources: {fallback_sources}"
+        )
+        for fb_source in fallback_sources:
+            if fb_source == provider or fb_source not in _SOURCE_TO_SEARCH:
+                continue
+            fb_search = _SOURCE_TO_SEARCH[fb_source]
+            added = _run_search(fb_search, fb_source)
+            if found_duration >= audio_duration:
+                logger.info(
+                    f"[{fb_source}] fallback added {added:.1f}s, "
+                    f"now total {found_duration:.1f}s >= required {audio_duration:.1f}s"
+                )
+                break
+        if found_duration < audio_duration:
+            logger.warning(
+                f"all fallback sources exhausted, total {found_duration:.1f}s "
+                f"still < required {audio_duration:.1f}s"
+            )
+    elif not fallback_sources:
+        logger.info("[download_videos] fallback_sources=None, 仅试主源")
 
     logger.info(
-        f"found total videos: {len(valid_video_items)}, required duration: {audio_duration} seconds, found duration: {found_duration} seconds"
+        f"found total videos: {len(valid_video_items)}, "
+        f"required duration: {audio_duration} seconds, "
+        f"found duration: {found_duration} seconds, "
+        f"used_sources: {used_sources}"
     )
     video_paths = []
     material_sources: list[dict[str, Any]] = []
@@ -1843,14 +1905,19 @@ def download_videos(
     if concat_mode_value == VideoConcatMode.random.value:
         random.shuffle(valid_video_items)
 
+    # 老杨 8/9 11:01 拍板: 加下载进度总览 (每 5 个 / 跨阶打 1 条, 不刷屏)
     total_duration = 0.0
-    for item in valid_video_items:
+    download_start_t = time.time()
+    for idx, item in enumerate(valid_video_items, 1):
         try:
             source_info = item.source_info if isinstance(item.source_info, dict) else {}
-            logger.info(
-                f"downloading {item.provider} video: "
-                f"asset_id={source_info.get('asset_id') or 'unknown'}"
-            )
+            # 压缩静默 spam: 每 5 个 / 首尾 打详细日志, 中间只打进度汇总
+            if idx == 1 or idx % 5 == 0 or idx == len(valid_video_items):
+                logger.info(
+                    f"[素材下载 {idx}/{len(valid_video_items)}] {item.provider} "
+                    f"asset_id={source_info.get('asset_id') or 'unknown'} "
+                    f"acc_duration={total_duration:.1f}s/{audio_duration:.1f}s"
+                )
             saved_video_path = save_video(
                 video_url=item.url, save_dir=material_directory
             )
@@ -1872,8 +1939,12 @@ def download_videos(
                 seconds = min(max_clip_duration, item.duration)
                 total_duration += seconds
                 if total_duration > audio_duration:
+                    elapsed = time.time() - download_start_t
                     logger.info(
-                        f"total duration of downloaded videos: {total_duration} seconds, skip downloading more"
+                        f"[素材下载完成] {len(video_paths)} videos "
+                        f"total_duration={total_duration:.1f}s "
+                        f"audio={audio_duration:.1f}s "
+                        f"elapsed={elapsed:.1f}s"
                     )
                     break
         except Exception as e:

@@ -7,10 +7,11 @@ import gc
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 from contextlib import ExitStack, redirect_stdout
 from functools import lru_cache
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from loguru import logger
 import numpy as np
 from moviepy import (
@@ -22,6 +23,7 @@ from moviepy import (
     TextClip,
     VideoFileClip,
     afx,
+    concatenate_videoclips,
 )
 from moviepy.video.tools.subtitles import SubtitlesClip
 from PIL import Image, ImageDraw, ImageFont
@@ -598,6 +600,197 @@ def _fit_clip_to_canvas(
     ).with_duration(clip.duration)
 
 
+def combine_videos_segmented(
+    combined_video_path: str,
+    segments: List[Dict],
+    audio_file: str,
+    video_aspect: VideoAspect = VideoAspect.portrait,
+    video_concat_mode: VideoConcatMode = VideoConcatMode.sequential,
+    video_transition_mode: VideoTransitionMode = None,
+    max_clip_duration: int = 5,
+    threads: int = 2,
+    clip_speed: float = 1.0,
+    audio_clip_range: Optional[Tuple[float, float]] = None,
+    download_func = None,
+) -> str:
+    """老杨 8/8 21:31 拍板: 按 LLM 返回的 video_prompts 逐段独立拼接视频
+
+    相比 combine_videos 的区别:
+    - 不是用统一的 search_terms 拼全曲, 而是每个 segment 用各自 prompt
+    - 每个 segment 按 start/end/duration 调用 download_func 下载专属素材
+    - 按时间顺序拼接各 segment 的视频片段
+
+    Args:
+        combined_video_path: 合成视频路径
+        segments: List[Dict], 由 segment_builder.build_segments() 生成
+            每个 segment 包含: section_index, label, prompt, style, start, end, duration
+        audio_file: 音频文件路径
+        video_aspect: 视频方向
+        video_concat_mode: 拼接模式 (sequential / random)
+        video_transition_mode: 转场模式
+        max_clip_duration: 单 clip 最长秒数
+        threads: 下载线程数
+        clip_speed: 播放速度
+        audio_clip_range: 高潮段区间
+        download_func: 可选, 自定义下载函数 (task_id, search_term, video_aspect,
+            video_concat_mode, audio_duration, max_clip_duration) -> List[video_path]
+            默认用 material.download_videos
+
+    Returns:
+        combined_video_path
+    """
+    from app.services import material as material_service
+
+    if not segments:
+        raise ValueError("segments 不能为空")
+
+    if download_func is None:
+        download_func = material_service.download_videos
+
+    audio_clip = AudioFileClip(audio_file)
+    try:
+        # 高潮段裁剪
+        if audio_clip_range is not None:
+            start, end = audio_clip_range
+            audio_clip = audio_clip.subclipped(start, end)
+            logger.info(f"audio_clipped: {start:.2f}s-{end:.2f}s (range={end - start:.2f}s)")
+        audio_duration = audio_clip.duration
+    finally:
+        close_clip(audio_clip)
+
+    required_video_duration = _get_required_video_duration(audio_duration)
+    logger.info(
+        f"segmented_concat: audio_duration={audio_duration:.2f}s, "
+        f"required={required_video_duration:.2f}s, segments={len(segments)}"
+    )
+
+    # 逐段下载素材
+    segment_video_paths = []  # List[(segment, [video_path])]
+    for idx, seg in enumerate(segments):
+        seg_label = seg.get("label", f"段{idx+1}")
+        seg_prompt = seg.get("prompt", "").strip()
+        seg_duration = float(seg.get("duration", 0))
+
+        if not seg_prompt:
+            logger.warning(f"segment {idx+1} ({seg_label}) prompt 为空, 跳过")
+            continue
+
+        if seg_duration <= 0:
+            logger.warning(f"segment {idx+1} ({seg_label}) duration={seg_duration}, 跳过")
+            continue
+
+        # 1. 用 LLM 给该段的 prompt (作为关键词) 去 pexels 独立搜索下载
+        #    search_terms = [seg_prompt] - 单个关键词
+        logger.info(
+            f"segment {idx+1}/{len(segments)} [{seg_label}]: "
+            f"prompt='{seg_prompt[:60]}...', duration={seg_duration:.1f}s"
+        )
+
+        # 老杨 8/8 21:31: 拍板 - 走 download_videos, 用 audio_duration = seg_duration 限制该段素材长度
+        # task_id 复用 combined_video_path 父目录名, 避免冲突
+        seg_task_id = f"seg_{idx+1}_{seg_label}_{int(time.time())}"
+        try:
+            seg_video_paths = download_func(
+                task_id=seg_task_id,
+                search_terms=[seg_prompt],
+                video_aspect=video_aspect,
+                video_concat_mode=video_concat_mode,
+                audio_duration=seg_duration,
+                max_clip_duration=max_clip_duration,
+            )
+        except Exception as e:
+            logger.error(f"segment {idx+1} download failed: {e}")
+            seg_video_paths = []
+
+        if seg_video_paths:
+            segment_video_paths.append((seg, seg_video_paths))
+            logger.info(
+                f"segment {idx+1} downloaded: {len(seg_video_paths)} videos "
+                f"(estimated total ~{sum(max_clip_duration for _ in seg_video_paths)}s)"
+            )
+        else:
+            logger.warning(f"segment {idx+1} no videos downloaded")
+
+    if not segment_video_paths:
+        raise RuntimeError("所有段落都未能下载到素材, 无法拼接")
+
+    # 2. 按时间顺序拼接各段视频
+    video_clips = []
+    for seg, paths in segment_video_paths:
+        seg_duration = float(seg.get("duration", 0))
+        seg_label = seg.get("label", "?")
+        # 从该段下载的视频里选素材, 拼到该段时长为止
+        seg_clips = []
+        remaining = seg_duration
+        for p in paths:
+            try:
+                clip = VideoFileClip(p)
+                # 裁剪到 remaining + max_clip_duration
+                clip_dur = min(clip.duration, max_clip_duration)
+                if remaining <= 0:
+                    close_clip(clip)
+                    break
+                use_dur = min(clip_dur, remaining)
+                if use_dur < clip_dur:
+                    clip = clip.subclipped(0, use_dur)
+                seg_clips.append(clip)
+                remaining -= use_dur
+            except Exception as e:
+                logger.warning(f"failed to load segment clip {p}: {e}")
+                continue
+
+        if not seg_clips:
+            logger.warning(f"segment {idx+1} [{seg_label}] no valid clips")
+            continue
+
+        if len(seg_clips) == 1:
+            video_clips.append(seg_clips[0])
+        else:
+            seg_concat = concatenate_videoclips(seg_clips, method="compose")
+            # 如果超过段时长则裁剪
+            if seg_concat.duration > seg_duration:
+                seg_concat = seg_concat.subclipped(0, seg_duration)
+            video_clips.append(seg_concat)
+            # close 中间 clips
+            for c in seg_clips:
+                close_clip(c)
+
+    if not video_clips:
+        raise RuntimeError("拼接后无有效片段")
+
+    final_clip = concatenate_videoclips(video_clips, method="compose")
+    # 裁剪到所需时长 (可能因各段加总超出/不足)
+    if final_clip.duration > required_video_duration:
+        final_clip = final_clip.subclipped(0, required_video_duration)
+    elif final_clip.duration < required_video_duration - 0.5:
+        logger.warning(
+            f"final_clip.duration={final_clip.duration:.2f}s < required={required_video_duration:.2f}s, "
+            f"会循环填充"
+        )
+
+    # 写入
+    output_dir = os.path.dirname(combined_video_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    final_clip.write_videofile(
+        combined_video_path,
+        fps=30,
+        logger=None,
+        threads=threads,
+    )
+
+    # 清理
+    for c in video_clips:
+        close_clip(c)
+    close_clip(final_clip)
+
+    logger.success(
+        f"segmented_concat: {combined_video_path} "
+        f"duration={final_clip.duration:.2f}s, segments={len(segment_video_paths)}"
+    )
+    return combined_video_path
+
+
 def combine_videos(
     combined_video_path: str,
     video_paths: List[str],
@@ -618,7 +811,7 @@ def combine_videos(
         if audio_clip_range is not None:
             start, end = audio_clip_range
             # 截取音频
-            audio_clip = audio_clip.subclip(start, end)
+            audio_clip = audio_clip.subclipped(start, end)
             logger.info(f"audio_clipped: {start:.2f}s-{end:.2f}s (range={end - start:.2f}s)")
         # 这里只需要读取旁白音频时长来决定素材视频拼接长度；后续不会再使用
         # audio_clip。读取完成后立即关闭，避免早退或异常路径泄漏文件句柄。
@@ -789,7 +982,12 @@ def combine_videos(
             video_duration += clip_duration_saved
             
         except Exception as e:
-            logger.error(f"failed to process clip: {str(e)}")
+            # 2026-08-09 老杨 14:11 拍板: 加 traceback, 看到底是 random/choice 还是别的错
+            import traceback as _tb
+            logger.error(
+                f"failed to process clip: {type(e).__name__}: {e}\n"
+                f"{_tb.format_exc()}"
+            )
     
     # loop processed clips until the video duration covers the audio duration and the small safety margin.
     if video_duration < required_video_duration:

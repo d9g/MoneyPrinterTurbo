@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 
-SCHEMA_VERSION = "2026-08-07.v1"  # 用于 migration 追踪
+SCHEMA_VERSION = "2026-08-09.v2"  # 2026-08-09 加 task_id 字段 (P1-4)
 
 
 # ================ CREATE TABLE ================
@@ -27,6 +27,9 @@ SCHEMA_VERSION = "2026-08-07.v1"  # 用于 migration 追踪
 CREATE_INTENT_HISTORY_TABLE = """
 CREATE TABLE IF NOT EXISTS mv_intent_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- 2026-08-09 P1-4: 关联 video task (mv_intent_history ↔ state.tasks)
+    task_id TEXT,                    -- FastAPI 生成的 task_id, 可空 (老数据)
 
     -- Diana 2.4: 用户标识
     user_id TEXT,
@@ -74,6 +77,8 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_intent_user ON mv_intent_history(user_id, song_signature);",
     # Diana 2.5: 加快最新版本查询
     "CREATE INDEX IF NOT EXISTS idx_intent_latest ON mv_intent_history(audio_id, is_latest);",
+    # 2026-08-09 P1-4: task_id 索引 (WebUI 弹窗查询)
+    "CREATE INDEX IF NOT EXISTS idx_intent_task ON mv_intent_history(task_id);",
     # 时间索引 (用于 retention 清理)
     "CREATE INDEX IF NOT EXISTS idx_intent_created ON mv_intent_history(created_at);",
 ]
@@ -129,6 +134,18 @@ def init_db(db_path: str) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     with sqlite3.connect(db_path) as conn:
+        # 2026-08-09 P1-4: 旧表 ADD COLUMN task_id (schema=v1 不存 task_id)
+        # SQLite 不支持 IF NOT EXISTS for ADD COLUMN, 先检查列是否存在
+        cur = conn.execute("PRAGMA table_info(mv_intent_history)")
+        existing_cols = {row[1] for row in cur.fetchall()}
+        if "task_id" not in existing_cols:
+            conn.execute("ALTER TABLE mv_intent_history ADD COLUMN task_id TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_intent_task "
+                "ON mv_intent_history(task_id)"
+            )
+            logger.info("migration: added task_id column to mv_intent_history")
+
         for query in INIT_QUERIES:
             conn.execute(query)
         # 记录 schema 版本

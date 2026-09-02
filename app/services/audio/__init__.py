@@ -17,6 +17,23 @@ Standalone Audio Style Analyzer
 - analyze_audio() 主入口
 - 所有 dataclass 类型
 """
+import logging
+
+logger = logging.getLogger(__name__)
+
+logger.info(
+    "\n%s\n"
+    "⚠️  音频版权与使用声明\n"
+    "%s\n"
+    "本工具仅分析用户自行上传的明文音频，不提供、不存储、不传播任何受版权保护内容。\n"
+    "请确保您对上传的音频享有合法使用权（CC0 / 自制 / 已授权）。\n"
+    "VIP / 加密音乐请使用 UnlockMusic (https://git.unlock-music.dev/) 本地解密后重新上传。\n"
+    "严禁将分析结果用于侵犯第三方版权的内容生成。\n"
+    "%s",
+    "=" * 60,
+    "=" * 60,
+    "=" * 60,
+)
 from .analyzer import analyze_audio, clear_cache
 from .features.vocab import (
     TEMPO_VOCAB, KEY_VOCAB, DYNAMIC_VOCAB,

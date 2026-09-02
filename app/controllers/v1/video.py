@@ -45,7 +45,9 @@ _redis_host = config.app.get("redis_host", "localhost")
 _redis_port = config.app.get("redis_port", 6379)
 _redis_db = config.app.get("redis_db", 0)
 _redis_password = config.app.get("redis_password", None)
-_max_concurrent_tasks = config.app.get("max_concurrent_tasks", 5)
+# 2026-08-09 老杨 12:46 拍板: 默认 1 (串行), 避免 cgroup OOM
+# config.toml 可覆盖
+_max_concurrent_tasks = config.app.get("max_concurrent_tasks", 1)
 _max_queued_tasks = config.app.get("max_queued_tasks", 100)
 
 
@@ -207,12 +209,15 @@ def create_task(
     task_id = utils.get_uuid()
     request_id = base.get_task_id(request)
     try:
+        params_dict = body.model_dump()
         task = {
             "task_id": task_id,
             "request_id": request_id,
-            "params": body.model_dump(),
+            "params": params_dict,
         }
-        sm.state.update_task(task_id)
+        # update_task 需要带上 params，否则 Redis 里的任务记录 params 为空，
+        # WebUI 刷新后 subject 等字段会丢失。
+        sm.state.update_task(task_id, params=params_dict)
         try:
             task_manager.add_task(
                 tm.start, task_id=task_id, params=body, stop_at=stop_at
