@@ -1,6 +1,6 @@
 # MV v2.0 升级日志 (2026-08-07)
 
-> **作者**: 老杨 + Claude | **审计**: Diana (2026-08-07)
+> **审计**: Diana (2026-08-07)
 
 ## 🎯 v2.0 主题: 独立化 + 持久化 + 持续进化
 
@@ -66,7 +66,7 @@
 | 2.1 | git subtree --prefix=单文件 | ✅ 用 audio/ 包目录 |
 | 2.2 | song_signature SHA1 文件指纹 | ✅ 三层识别: 元数据 > ID3 > 声学指纹 |
 | 2.3 | LLM 输出无 Schema 校验 | ✅ Pydantic IntentSchema |
-| 2.4 | 缺 user_id 字段 | ✅ 表里有 + 索引 (老杨 22:44: 预留, 不接业务) |
+| 2.4 | 缺 user_id 字段 | ✅ 表里有 + 索引 (预留, 不接业务) |
 | 2.5 | latest 查询用相关子查询 | ✅ ROW_NUMBER 窗口函数视图 + is_latest 字段 |
 
 ### P1 (重要, 部分完成)
@@ -181,7 +181,7 @@
 1. `_llm_model` 字段返回 provider 名 (没从 config 读具体 model_name)
 2. `cost_usd` 字段没接 (Diana 4.4 token 计费逻辑)
 3. `force_refresh` 参数接到了但未生效
-4. `user_id` X-User-Id header 接到了但未接业务 (老杨 23:35: 预留, 当前用不上)
+4. `user_id` X-User-Id header 接到了但未接业务 (预留, 当前用不上)
 5. WebUI MV 页面 (改 Main.py)
 6. 旧 audio_analyzer.py import 路径清理
 7. 单元测试 (pytest)
@@ -196,4 +196,4 @@
 
 ---
 
-**老杨审完 v2.0 后可 commit + push 当前进度**, v2.1 (UI + WebUI MV 页面) 是下个里程碑。
+**v2.0 commit + push 当前进度**, v2.1 (UI + WebUI MV 页面) 是下个里程碑。

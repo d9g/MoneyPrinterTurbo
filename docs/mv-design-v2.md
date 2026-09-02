@@ -1,4 +1,4 @@
-# MV v2 设计文档 (老杨 2026-08-07 19:57 拍板，Diana 2026-08-07 21:12 审计修订)
+# MV v2 设计文档 (Diana 2026-08-07 21:12 审计修订)
 
 > **v2 修订说明**: 根据 Diana 审计报告修了 5 个 P0 bug + 吸收 4 个 P1 改进 + 拆 v2.0/v2.1 两期交付
 > 审计原文: [docs/mv-design-v2-audit.md](mv-design-v2-audit.md)
@@ -239,7 +239,7 @@ def compute_song_signature(
     artist: Optional[str] = None,
     title: Optional[str] = None,
 ) -> tuple[str, dict]:
-    """三层识别优先级 (Diana 2.2 + 老杨 19:57 建议)
+    """三层识别优先级 (Diana 2.2)
     
     Returns: (signature, metadata)
     """
@@ -467,7 +467,7 @@ EVOLUTION_PROMPT = """
 
 ---
 
-**老杨审完 v2.0 后, 我按 v2-1 → v2-8 顺序开干**
+**v2.0 后, 按 v2-1 → v2-8 顺序开干**
 
 **Diana 审计 5 个 P0 全部吸收进 v2.0**, 4 个 P1 拆到 v2.1。v2.0 大约 5.5 天交付一个**核心可用**的 MV 模块。
 
@@ -632,7 +632,7 @@ app/services/audio/
 | ⏸ | `_llm_model` 字段返回 provider 名 (没从 config 读具体 model_name) | 中 |
 | ⏸ | `cost_usd` 字段没接 (Diana 4.4 token 计费逻辑) | 低 |
 | ⏸ | `force_refresh` 参数接到了但未生效 | 中 |
-| ⏸ | `user_id` X-User-Id header 接到了但未接业务 (老杨 23:35 拍板) | 低 (预留) |
+| ⏸ | `user_id` X-User-Id header 接到了但未接业务 | 低 (预留) |
 | ⏸ | WebUI MV 页面 (改 Main.py) | 高 (下个里程碑) |
 | ⏸ | audio_analyzer.py 旧版本被改成了 audio 包, 但旧 import 没全清 | 中 |
 | ⏸ | 单元测试 (pytest 覆盖) | 低 |
