@@ -1,6 +1,6 @@
 """
 audio.features.vocab — 音乐术语映射表
-Diana 审计 3.2 新增
+审计项 3.2 新增
 
 把物理参数 (BPM/调性/动态) 翻译成专业术语, 让 LLM 和用户都能直接用
 
@@ -73,7 +73,7 @@ def get_key_vocab(key: str) -> dict:
     return {"key_chinese": key, "key_description": "未知调性"}
 
 
-# ================ 动态范围映射 (Diana 3.2) ================
+# ================ 动态范围映射 () ================
 
 DYNAMIC_VOCAB = [
     {"min_db": -60, "max_db": -35, "class": "弱动态", "mark": "p",  "desc": "细腻, 内敛"},

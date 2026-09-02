@@ -1,12 +1,12 @@
 """
 MV 模式路由 v2 - MoneyPrinterTurbo MV 模式
-老杨 2026-08-07 22:18 v2-7 拍板: API 接 signature + history + cache
+v2-7 API 接 signature + history + cache
 
 端点:
 - POST /api/v1/mv/upload-audio    上传音乐, 返回 file_id
 - POST /api/v1/mv/upload-lyrics   上传歌词文件 (.lrc/.qrc/.txt)
 - POST /api/v1/mv/analyze         上传音频 + 歌词, 返回曲调特征 + LLM 意境方案
-- GET  /api/v1/mv/cache/{audio_id} 查询意境历史 (Diana 3.3)
+- GET /api/v1/mv/cache/{audio_id} 查询意境历史 ()
 - GET  /api/v1/mv/health          健康检查
 """
 import os
@@ -69,7 +69,7 @@ def _validate_storage_id(file_id: str, request_id: str) -> Path:
         )
     return target
 
-# MV 意境历史 DB 路径 (老杨 22:18 拍板: 独立 SQLite)
+# MV 意境历史 DB 路径 (独立 SQLite)
 _MV_INTENT_DB = config.app.get("mv_intent_db_path", "storage/mv/mv_intent.db")
 init_mv_db(_MV_INTENT_DB)
 
@@ -99,7 +99,7 @@ def _save_upload(file: UploadFile, target_dir: Path, allowed_ext: set, prefix: s
 
 @router.post("/mv/upload-audio", summary="Upload audio for MV analysis")
 async def upload_mv_audio(request: Request, file: UploadFile = File(...)):
-    """上传音乐文件, 返回 file_id + 解析后的 ID3 metadata (Diana 2.2 三层识别第一层)"""
+    """上传音乐文件, 返回 file_id + 解析后的 ID3 metadata (三层识别第一层)"""
     request_id = base.get_task_id(request)
     file_id, abs_path = _save_upload(file, _STORAGE_MV, _AUDIO_EXTENSIONS, "mva")
 
@@ -145,16 +145,16 @@ async def mv_analyze(
     audio_id: str = Form(..., description="from /mv/upload-audio"),
     lyrics_text: Optional[str] = Form(None, description="手动粘贴的歌词文本"),
     lyrics_file_id: Optional[str] = Form(None, description="from /mv/upload-lyrics"),
-    force_refresh: bool = Form(False, description="强制重新 LLM, 忽略缓存 (Diana 4.5)"),
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id", description="预留 (Diana 2.4, 当前不接业务)"),
+    force_refresh: bool = Form(False, description="强制重新 LLM, 忽略缓存 ()"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id", description="预留 (当前不接业务)"),
 ):
     """MV 主入口 v2
 
     v2 新增:
-    - song_signature 三层识别 (Diana 2.2: ID3 > metadata > audio fingerprint)
-    - 意境历史查询 (Diana 3.3)
-    - cache fallback (Diana 4.5)
-    - cost tracking (Diana 4.4)
+    - song_signature 三层识别 (ID3 > metadata > audio fingerprint)
+    - 意境历史查询 ()
+    - cache fallback ()
+    - cost tracking ()
     """
     request_id = base.get_task_id(request)
 
@@ -186,7 +186,7 @@ async def mv_analyze(
             logger.warning(f"歌词文件解析失败: {exc}")
             lyrics_meta = {"source": f"file:{lyrics_file_id}", "parse_error": str(exc)}
 
-    # 3. 音频分析 (Diana 2.2 三层识别) — 审计 P0-3: 复用 y, sr, 不重复 preprocess_audio
+    # 3. 音频分析 (三层识别) — 审计 P0-3: 复用 y, sr, 不重复 preprocess_audio
     logger.info(f"mv_analyze: 开始音频分析 {audio_path}")
     try:
         from app.services.audio.analyzer import analyze_audio_with_audio
@@ -198,7 +198,7 @@ async def mv_analyze(
         features = features_obj.to_dict()
         id3_meta = features_obj.id3_metadata
 
-        # Diana 2.2: song_signature (三层识别)
+        # song_signature (三层识别)
         signature_str, signature_meta = compute_song_signature(
             audio_path=str(audio_path),
             y=y,
@@ -212,7 +212,7 @@ async def mv_analyze(
     except AudioAnalyzerError as exc:
         raise HttpException(task_id=request_id, status_code=400, message=f"audio analyze failed: {exc}")
 
-    # 4. LLM 综合判断 (Diana 2.5 + 4.5)
+    # 4. LLM 综合判断 (4.5)
     logger.info(
         f"mv_analyze: 开始 LLM 规划 "
         f"(signature={signature_str[:60]}..., "
@@ -228,7 +228,7 @@ async def mv_analyze(
         duration_seconds=features["duration_seconds"],
         artist=id3_meta.artist if id3_meta else None,
         title=id3_meta.title if id3_meta else None,
-        user_id=x_user_id,  # Diana 2.4 预留, 当前不接业务
+        user_id=x_user_id,  # 预留, 当前不接业务
     )
 
     return utils.get_response(200, {
@@ -247,15 +247,15 @@ async def mv_analyze(
     })
 
 
-# ================ CACHE QUERY (Diana 3.3) ================
+# ================ CACHE QUERY () ================
 
-@router.get("/mv/cache/{audio_id}", summary="Get intent history for audio_id (Diana 3.3)")
+@router.get("/mv/cache/{audio_id}", summary="Get intent history for audio_id ()")
 async def mv_cache(
     request: Request,
     audio_id: str,
     limit: int = 5,
 ):
-    """查询意境历史 (Diana 3.3: 用于 LLM 进化 prompt)
+    """查询意境历史 (用于 LLM 进化 prompt)
 
     Args:
         audio_id: from /mv/upload-audio

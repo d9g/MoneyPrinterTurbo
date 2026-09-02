@@ -140,12 +140,12 @@ class VideoParams(BaseModel):
     paragraph_number: int = Field(default=1, ge=1, le=10)
     video_script_prompt: str = Field(default="", max_length=2000)
     custom_system_prompt: str = Field(default="", max_length=8000)
-    # 老杨 8/8 21:31: 按段落拼接 - 是否使用 LLM video_prompts 按段拼接 (每个段落独立搜索/下载/拼接)
+    # 按段落拼接 - 是否使用 LLM video_prompts 按段拼接 (每个段落独立搜索/下载/拼接)
     use_segmented_concat: bool = False
-    # 老杨 8/8 21:31: 传入 LLM 生成的完整 plan (webui 端 MvPlanner.build() 输出)
+    # 传入 LLM 生成的完整 plan (webui 端 MvPlanner.build() 输出)
     #    包含 video_prompts / theme_keywords_cn / theme_keywords_en 等
     mv_plan: Optional[Dict[str, Any]] = None
-    # 老杨 8/8 21:31: 传入 audio features (AudioFeatures.to_dict() 输出)
+    # 传入 audio features (AudioFeatures.to_dict() 输出)
     #    包含 sections / tempo / key_info / pitch_range / dynamic / spectral
     mv_features: Optional[Dict[str, Any]] = None
 

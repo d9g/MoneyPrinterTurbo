@@ -1,8 +1,8 @@
 """
-audio.features.style — 风格识别 (Diana 3.2)
+audio.features.style — 风格识别 ()
 
 v2.0 占位实现 (heuristic-only)
-v2.1 升级 (老杨 2026-08-17 16:08 拍板):
+v2.1 升级 ():
   - vocal_type: 用 librosa pyin 音高分布 (中位数 + 跨度) 判定男/女/无
   - dominant_instruments: 用频段能量分布 + 频谱质心
   - genre_confidence: 用流派-特征匹配度计算 (0-1)
@@ -288,7 +288,7 @@ def _genre_confidence(genre: str, tempo_bpm: float, is_major: bool, valence: flo
 
 
 def detect_style(y, sr, tempo_bpm: float, key: str, dynamic_range_db: float) -> StyleInfo:
-    """风格识别 (Diana 3.2 v2.1)
+    """风格识别 (v2.1)
 
     v2.0 实现: 用启发式规则粗略估算
     v2.1 升级: 用 librosa 真实计算 (vocal_type + dominant_instruments)

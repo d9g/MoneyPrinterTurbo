@@ -76,7 +76,7 @@ def detect_sections(y, sr, n_sections: int = 6) -> list:
 
 
 def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
-    """高潮段检测 (Diana 8/8 老杨拍板)
+    """高潮段检测
 
     多维特征识别:
       1. RMS 能量 (咅度突变)
@@ -87,13 +87,12 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
     Args:
         y: 音频数组
         sr: 采样率
-        top_k: 返回 top_k 个高潮段 (老杨拍板 精选1/2/3)
+        top_k: 返回 top_k 个高潮段 (精选1/2/3)
 
     Returns:
         List[ChorusSegment] (按置信度降序, 最多 top_k 个)
         如果一个都识别不到, 返回空列表 [] (不强凑数)
 
-    老杨 8/8 17:34:
       - “有多少高潮就选几个, 识别不出来高潮就不选”
       - top_k 默认 3 (足够 UI 列表展示), 但不限定, 识别出 1-2 个就返回 1-2 个
     """
@@ -134,7 +133,7 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
 
     # 4. 综合能量 = 0.5 * RMS + 0.3 * centroid + 0.2 * onset
     composite = rms_n * 0.5 + centroid_n * 0.3 + onset_n * 0.2
-    # 老杨 8/8 18:09: 对能量曲线做滑动平均平滑 (3 秒窗口) 避免局部波动误识别
+    # 对能量曲线做滑动平均平滑 (3 秒窗口) 避免局部波动误识别
     smooth_window = max(1, int(3 * sr / hop_length))
     if smooth_window > 1 and len(composite) > smooth_window:
         kernel = np.ones(smooth_window) / smooth_window
@@ -143,12 +142,12 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
         composite_smooth = composite
 
     # 5. 滑动窗口检测高潮区域
-    #    老杨 8/8 18:09: 不再使用固定 15 秒窗口
+    # 不再使用固定 15 秒窗口
     #    改为以峰为中心, 向前/向后扩展到能量下降到 peak * 0.5 处 (“句子结尾”)
     #    最大不超过 40 秒, 最小不少于 10 秒 (避免过短)
     win_frames = int(15 * sr / hop_length)  # 保留仅用于最初的 peak 附近区间
     hop_frames = int(5 * sr / hop_length)
-    min_chorus_frames = int(6 * sr / hop_length)   # 最小 6s (大约 4-8 个4 拍小节, 老杨 8/8 18:09)
+    min_chorus_frames = int(6 * sr / hop_length)  # 最小 6s (大约 4-8 个4 拍小节)
     max_chorus_frames = int(40 * sr / hop_length)  # 最大 40s (超过是 “话分两段” 的子峰)
 
     if n_frames < min_chorus_frames:
@@ -165,7 +164,7 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
         return [seg]
 
     # 6. 用 scipy.signal.find_peaks 找 energy 高峰 (避免按窗口滑求同一高点重复)
-    # 老杨 8/8 18:09: 在平滑后曲线上找峰 (避免局部波动误识别)
+    # 在平滑后曲线上找峰 (避免局部波动误识别)
     from scipy.signal import find_peaks
     # distance= 20s (两个高潮区间隔不会太近)
     peaks, _ = find_peaks(
@@ -180,7 +179,7 @@ def detect_chorus_segments(y, sr, top_k: int = 3) -> list:
 
     candidates = []
     for p_idx in peaks:
-        # 老杨 8/8 18:09: 动态边界 - 以 peak 为中心, 向两边扩展到局部谷点 ("句子结尾")
+        # 动态边界 - 以 peak 为中心, 向两边扩展到局部谷点 ("句子结尾")
         # 使用平滑后的能量曲线 (避免局部波动)
         peak_value = float(composite_smooth[int(p_idx)])
         threshold = peak_value * 0.5

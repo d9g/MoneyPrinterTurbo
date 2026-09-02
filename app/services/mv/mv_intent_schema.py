@@ -1,6 +1,6 @@
 """
 mv.mv_intent_schema — LLM 输出 JSON Schema 校验
-老杨 8/9 10:30 拍板: MV 模式回退到基础 video 生成
+MV 模式回退到基础 video 生成
 LLM 只输出意境 + 中英关键词 + 调色, 不再要求 video_prompts 分段
 
 Pydantic 模型定义 + validate_intent() 函数
@@ -13,11 +13,11 @@ from pydantic import BaseModel, Field, ValidationError
 
 
 class IntentSchema(BaseModel):
-    """MV 意境方案完整 schema (老杨 8/9 10:30 拍板简化版)
+    """MV 意境方案完整 schema (简化版)
 
     校验规则:
     - 必须存在 theme_keywords_cn + theme_keywords_en
-    - video_prompts 不再必填 (老杨 8/9 10:30 拍板: 不要分段设计)
+    - video_prompts 不再必填 (不要分段设计)
     - color_palette + transition_style + subtitle_style 保留 (UI 显示用)
     """
     model_config = {"populate_by_name": True}

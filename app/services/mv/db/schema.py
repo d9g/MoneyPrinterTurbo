@@ -1,7 +1,7 @@
 """
 mv.db.schema — MV 意境历史数据库 schema
-老杨 2026-08-07 22:18 拍板: 独立 SQLite (option A)
-Diana 审计 2.4 + 2.5 + 4.4 全部吸收
+独立 SQLite (option A)
+审计项 2.4 + 2.5 + 4.4 全部吸收
 
 包含 1 张表 + 1 个视图:
 - mv_intent_history: 意境历史 (每首歌多次解析)
@@ -9,10 +9,10 @@ Diana 审计 2.4 + 2.5 + 4.4 全部吸收
 
 字段包括:
 - 基础: audio_id, song_signature, user_id, artist, title, duration_seconds
-- 版本: version, is_latest (Diana 2.5: 维护标记, 避免相关子查询)
+- 版本: version, is_latest (维护标记, 避免相关子查询)
 - LLM 输出: intent_json (完整 JSON), source, llm_error
 - 审计: prompt_history_json, llm_model, llm_latency_ms
-- 成本: prompt_tokens, completion_tokens, cost_usd (Diana 4.4)
+- 成本: prompt_tokens, completion_tokens, cost_usd ()
 - 时间: created_at (CST, +8 hours)
 """
 from pathlib import Path
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS mv_intent_history (
     -- 2026-08-09 P1-4: 关联 video task (mv_intent_history ↔ state.tasks)
     task_id TEXT,                    -- FastAPI 生成的 task_id, 可空 (老数据)
 
-    -- Diana 2.4: 用户标识
+    -- 用户标识
     user_id TEXT,
 
     -- 音频标识
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS mv_intent_history (
     title TEXT,
     duration_seconds REAL NOT NULL,
 
-    -- 版本控制 (Diana 2.5: is_latest 字段)
+    -- 版本控制 (is_latest 字段)
     version INTEGER NOT NULL,
     is_latest INTEGER DEFAULT 0,
 
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS mv_intent_history (
     -- Prompt 审计
     prompt_history_json TEXT,       -- 上送 LLM 的 history (用于审计/debug)
 
-    -- LLM 元数据 (Diana 4.4: token 成本)
+    -- LLM 元数据 (token 成本)
     llm_model TEXT,
     llm_latency_ms INTEGER,
     prompt_tokens INTEGER,
@@ -73,9 +73,9 @@ CREATE TABLE IF NOT EXISTS mv_intent_history (
 CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_intent_audio ON mv_intent_history(audio_id);",
     "CREATE INDEX IF NOT EXISTS idx_intent_signature ON mv_intent_history(song_signature);",
-    # Diana 2.4: 用户索引
+    # 用户索引
     "CREATE INDEX IF NOT EXISTS idx_intent_user ON mv_intent_history(user_id, song_signature);",
-    # Diana 2.5: 加快最新版本查询
+    # 加快最新版本查询
     "CREATE INDEX IF NOT EXISTS idx_intent_latest ON mv_intent_history(audio_id, is_latest);",
     # 2026-08-09 P1-4: task_id 索引 (WebUI 弹窗查询)
     "CREATE INDEX IF NOT EXISTS idx_intent_task ON mv_intent_history(task_id);",
@@ -84,10 +84,10 @@ CREATE_INDEXES = [
 ]
 
 
-# ================ CREATE VIEW (Diana 2.5 修复) ================
+# ================ CREATE VIEW ================
 
 CREATE_LATEST_VIEW = """
--- Diana 2.5: 用 ROW_NUMBER() 窗口函数, 避免相关子查询的性能问题
+-- 用 ROW_NUMBER() 窗口函数, 避免相关子查询的性能问题
 -- 需要 SQLite 3.25+, 项目要求 Python 3.11+ 自带 3.37+
 CREATE VIEW IF NOT EXISTS mv_intent_latest AS
 SELECT * FROM (

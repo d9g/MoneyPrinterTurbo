@@ -294,7 +294,7 @@ def correct(subtitle_file, video_script):
         logger.success("Subtitle is correct")
 
 
-# ================ LRC 解析 (Diana 8/8 老杨拍板) ================
+# ================ LRC 解析 ================
 # LRC 格式:
 #   [00:01.23]歌词文本
 #   [00:05.67]歌词文本

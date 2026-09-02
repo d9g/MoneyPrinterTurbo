@@ -1649,8 +1649,8 @@ def _search_videos_with_cache(
         return items
 
 
-# === 安全关键词改写 (Diana 8/8 拍板) ===
-# 老杨暗藏规则: 避免面部特写 + 避免静态特写 + 摇曳模糊优先
+# === 安全关键词改写 () ===
+# 暗藏规则: 避免面部特写 + 避免静态特写 + 摇曳模糊优先
 _PEOPLE_KEYWORDS = (
     "runner", "jogger", "athlete", "biker", "cyclist",
     "person", "people", "woman", "women", "man", "men",
@@ -1678,7 +1678,6 @@ def _has_banned_keyword(term: str) -> bool:
 def _expand_search_terms_for_safety(search_terms: List[str]) -> List[str]:
     """根据暗藏规则改写关键词, 避免人脸特写 + 静态特写
 
-    老杨 8/8 拍板:
     1. 通用追加 cinematic shot, bokeh, side view (避免正面)
     2. 通用追加 motion blur 或 slow motion (避免静态特写)
     3. 检测到人相关词 (runner/woman/man/person/jogger) → 强制加防面部后缀
@@ -1738,14 +1737,14 @@ def download_videos(
 
     Args:
         fallback_sources: 主源 (source) 搜不到足够结果时, 依次试这些源.
-                          老杨 8/9 08:19 拍板: Pexels 404 率高, 需 fallback.
+                          Pexels 404 率高, 需 fallback.
                           默认: ["pixabay", "coverr"]
                           传 None 禁用 fallback.
     """
     if fallback_sources is None:
         fallback_sources = ["pixabay", "coverr"]
 
-    # === 关键词安全过滤 (Diana 8/8) ===
+    # === 关键词安全过滤 () ===
     # 暗藏规则: 避免人脸特写 + 静态特写 + 摇曳模糊优先
     search_terms = _expand_search_terms_for_safety(search_terms)
     logger.info(
@@ -1867,7 +1866,7 @@ def download_videos(
     # 主源一轮
     _run_search(search_videos, provider)
 
-    # Fallback: 主源不够素材时 (老杨 8/9 08:19 拍板)
+    # Fallback: 主源不够素材时 ()
     if fallback_sources and found_duration < audio_duration:
         logger.warning(
             f"[{provider}] found {found_duration:.1f}s < required {audio_duration:.1f}s, "
@@ -1905,7 +1904,7 @@ def download_videos(
     if concat_mode_value == VideoConcatMode.random.value:
         random.shuffle(valid_video_items)
 
-    # 老杨 8/9 11:01 拍板: 加下载进度总览 (每 5 个 / 跨阶打 1 条, 不刷屏)
+    # 加下载进度总览 (每 5 个 / 跨阶打 1 条, 不刷屏)
     total_duration = 0.0
     download_start_t = time.time()
     for idx, item in enumerate(valid_video_items, 1):

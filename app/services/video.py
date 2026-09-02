@@ -613,7 +613,7 @@ def combine_videos_segmented(
     audio_clip_range: Optional[Tuple[float, float]] = None,
     download_func = None,
 ) -> str:
-    """老杨 8/8 21:31 拍板: 按 LLM 返回的 video_prompts 逐段独立拼接视频
+    """按 LLM 返回的 video_prompts 逐段独立拼接视频
 
     相比 combine_videos 的区别:
     - 不是用统一的 search_terms 拼全曲, 而是每个 segment 用各自 prompt
@@ -686,7 +686,7 @@ def combine_videos_segmented(
             f"prompt='{seg_prompt[:60]}...', duration={seg_duration:.1f}s"
         )
 
-        # 老杨 8/8 21:31: 拍板 - 走 download_videos, 用 audio_duration = seg_duration 限制该段素材长度
+        # - 走 download_videos, 用 audio_duration = seg_duration 限制该段素材长度
         # task_id 复用 combined_video_path 父目录名, 避免冲突
         seg_task_id = f"seg_{idx+1}_{seg_label}_{int(time.time())}"
         try:
@@ -982,7 +982,7 @@ def combine_videos(
             video_duration += clip_duration_saved
             
         except Exception as e:
-            # 2026-08-09 老杨 14:11 拍板: 加 traceback, 看到底是 random/choice 还是别的错
+            # 2026-08-09 加 traceback, 看到底是 random/choice 还是别的错
             import traceback as _tb
             logger.error(
                 f"failed to process clip: {type(e).__name__}: {e}\n"

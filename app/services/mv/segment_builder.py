@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-segment_builder.py — Diana 8/8 21:31 拍板
+segment_builder.py
 
 把 plan.video_prompts + audio features.sections 映射成视频生成的 segment 列表
 
@@ -70,7 +70,7 @@ def build_segments(
     n_prompts = len(prompts_by_idx)
 
     # 决定总段数 = min(sections 数量, prompts 数量, 上限 12)
-    # 老杨 8/9 09:11 拍板: mv_planner 改动态段数, 这里跟改, 不再硬限 6
+    # mv_planner 改动态段数, 这里跟改, 不再硬限 6
     total = min(n_sections, n_prompts) if n_sections > 0 else min(n_prompts, 12)
 
     if total == 0:

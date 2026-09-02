@@ -1,6 +1,6 @@
 """
 audio.fingerprint — 歌曲指纹计算
-Diana 审计 2.2 修复版
+审计项 2.2 修复版
 
 替代 SHA1-first-1MB (同一首歌不同编码会失败)
 用 librosa chroma 特征做 hash, 对编码差异鲁棒
@@ -59,7 +59,7 @@ def compute_song_signature(
     id3_artist: Optional[str] = None,
     id3_title: Optional[str] = None,
 ) -> Tuple[str, dict]:
-    """三层识别优先级: 元数据 > ID3 > 声学指纹 (Diana 2.2 + 老杨 19:57)
+    """三层识别优先级: 元数据 > ID3 > 声学指纹
 
     Returns: (signature, metadata)
     """

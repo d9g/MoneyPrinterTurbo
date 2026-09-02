@@ -1,14 +1,14 @@
 """
 MV 意境综合判断器 - LLM 进化版
-老杨 2026-08-07 22:18 v2-5 重构 (Diana 3.3 + 2.5)
+v2-5 重构 (2.5)
 
 接收音频特征 + 歌词 + 历史, 输出 MV 制作方案.
 
 v2 升级:
-1. Diana 3.3: 进化 Prompt (带历史, 保留上次 + 增量优化)
-2. Diana 2.3: Pydantic JSON Schema 校验
-3. Diana 4.5: 重试 + 降级到最新历史
-4. Diana 2.4: cost tracking (写库)
+1. 进化 Prompt (带历史, 保留上次 + 增量优化)
+2. Pydantic JSON Schema 校验
+3. 重试 + 降级到最新历史
+4. cost tracking (写库)
 """
 import json
 import re
@@ -85,7 +85,7 @@ def _translate_keywords_to_en(cn_keywords: list[str]) -> list[str]:
     return out
 
 
-# 老杨 2026-08-15 拍板: 兜底规则也走曲风 / 场景 一致性
+# 兜底规则也走曲风 / 场景 一致性
 _FALLBACK_GENRE_RULES = [
     # (检测函数, 曲风名, 中文关键词, 英文 Pexels 关键词)
     (
@@ -136,7 +136,7 @@ _FALLBACK_GENRE_RULES = [
 def _detect_chinese_style(af: dict, lyrics: str) -> bool:
     """国风/古风检测: 多特征综合评分
 
-    老杨 2026-08-15 23:08 拍板: 长风渡案例 (BPM 112 / D大调 / 频谱中性)
+    长风渡案例 (BPM 112 / D大调 / 频谱中性)
     证明单看 brightness < 1500 不够, 必须结合歌词意象 + 调性 + 节奏范围综合判断.
 
     判定逻辑:
@@ -153,7 +153,7 @@ def _detect_chinese_style(af: dict, lyrics: str) -> bool:
     key = key_obj.get("key", "") if isinstance(key_obj, dict) else ""
     brightness = (af.get("spectral") or {}).get("brightness_hz", 0)
 
-    # 老杨 8/15 23:08: 古典意象词表扩充 (长风渡例: 烟雨/天涯/风霜/晚霞/染霜/少年/策马)
+    # 古典意象词表扩充 (长风渡例: 烟雨/天涯/风霜/晚霞/染霜/少年/策马)
     classical_keywords = [
         # 原有词
         "古", "风", "山水", "江河", "万里", "长安", "千年", "江湖",
@@ -231,7 +231,7 @@ def _detect_rock(af: dict) -> bool:
 def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
     """规则版降级方案 (LLM 失败 + 无缓存时使用)
 
-    老杨 2026-08-15 拍板: 兜底也按曲风锁定场景, 不再给国风输出霓虹/城市词
+    兜底也按曲风锁定场景, 不再给国风输出霓虹/城市词
     """
     # 审计 P2-5: 任何字段缺失/异常都兑底, 不抛 KeyError
     tempo_obj = audio_features.get("tempo") or {}
@@ -244,7 +244,7 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
     duration = float(audio_features.get("duration") or 0)
     lyrics_lines = len([l for l in (lyrics or "").splitlines() if l.strip()])
 
-    # 老杨 2026-08-15: 按曲风锁定视觉符号 (不依赖 LLM)
+    # 按曲风锁定视觉符号 (不依赖 LLM)
     matched_genre = None
     cn_scene = []
     en_scene = []
@@ -264,7 +264,7 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
         en_scene = ["urban lifestyle", "young people", "city street"]
         palette = ["暖金琥珀", "暮色蓝灰", "柔光奶白"]
 
-    # 老杨 8/9 08:19 拍板: 动态段数, 不硬凑 6 段
+    # 动态段数, 不硬凑 6 段
     if sections:
         n = len(sections)
     elif duration > 0:
@@ -296,11 +296,11 @@ def _fallback_plan(audio_features: dict, lyrics: str) -> dict:
 _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 你的任务: 把音频特征 + 歌词翻译成具体的 MV 拍摄意境方案, 让摄影师/剪辑师能直接照做.
 
-老杨 8/9 10:30 拍板: MV 模式简化为基础 video 生成
+MV 模式简化为基础 video 生成
 - 不再要求分段时间轴 (video_prompts 分段)
 - LLM 只输出意境 + 关键词 + 调色, 关键词会被 Pexels/Pixabay/Coverr 用于搜索视频
 
-老杨 2026-08-15 拍板: 曲风 / 场景 一致性
+曲风 / 场景 一致性
 - 强制从「曲风候选词表」选一个作为意境主调, 不可绕过
 - 视觉符号必须与曲风一致; 不许给国风歌曲出霓虹/城市/赛博场景
 - theme_keywords_en 只返与曲风一致的视觉符号, Pexels/Pixabay 才搜得到
@@ -352,7 +352,7 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 
 只用 ```json 包裹, 不要其他 Markdown 装饰.
 
-# 1-shot 反例 (老杨 2026-08-15 23:08 提供)
+# 1-shot 反例 ()
 
 ## 反例: 「长风渡」国风歌 - 错输出与正确输出对比
 
@@ -367,7 +367,7 @@ _SYSTEM_PROMPT = """你是 MV 意境综合分析师.
 归来两鬓染霜华
 ```
 
-**LLM 错输出** (老杨拍板不准):
+**LLM 错输出**:
 ```json
 {
   "theme_keywords_cn": ["晨光", "麦田", "山路", "奔跑", "光柱", "远空", "地平线", "海浪", "自由", "远行"],
@@ -410,7 +410,7 @@ _USER_PROMPT_FIRST = """# 首次分析 (无历史)
 ## 歌词
 {lyrics_block}
 
-## 曲风识别 (老杨 2026-08-15 23:08 拍板: 歌词优先级 > 音频特征)
+## 曲风识别 (歌词优先级 > 音频特征)
 
 **第一步: 先看歌词意象 (优先级最高)**
 - 古典意象 (烟雨/天涯/风霜/晚霞/少年/策马/长安/古道/竹/月/酒) → 极可能是 **国风 / 古风**
@@ -441,7 +441,7 @@ _USER_PROMPT_FIRST = """# 首次分析 (无历史)
 """
 
 
-_USER_PROMPT_EVOLUTION = """# 进化模式 (Diana 3.3)
+_USER_PROMPT_EVOLUTION = """# 进化模式 ()
 
 ## 歌曲音频特征
 - 时长: {duration_seconds}s
@@ -480,7 +480,7 @@ class MvPlanner:
             audio_features=features_dict,
             lyrics="...",
             audio_id="audio_001",
-            song_signature="meta:老杨::测试歌::180.0",
+            song_signature="meta::测试歌::180.0",
             duration_seconds=180.0,
         )
     """
@@ -490,7 +490,7 @@ class MvPlanner:
         app_config: Optional[dict] = None,
         repo: Optional[IntentRepository] = None,
         db_path: Optional[str] = None,
-        max_retries: int = 1,            # Diana 4.5: 重试次数
+        max_retries: int = 1,  # 重试次数
         retry_delay_seconds: float = 3.0,
     ):
         self.app_config = app_config
@@ -510,7 +510,7 @@ class MvPlanner:
         artist: Optional[str] = None,
         title: Optional[str] = None,
         history: Optional[List[IntentRecord]] = None,
-        user_id: Optional[str] = None,    # Diana 2.4 预留字段, 当前不接业务
+        user_id: Optional[str] = None,  # 预留字段, 当前不接业务
         task_id: Optional[str] = None,    # 2026-08-09 P1-4: 关联 video task
     ) -> dict:
         """主入口
@@ -550,7 +550,7 @@ class MvPlanner:
                 audio_features, lyrics, song_signature, exc, history,
             )
 
-        # 3. 写库 (Diana 2.5: is_latest 维护)
+        # 3. 写库 (is_latest 维护)
         if audio_id and song_signature is not None and duration_seconds is not None:
             self._save_intent(
                 audio_id=audio_id,
@@ -574,7 +574,7 @@ class MvPlanner:
     # ---------- LLM 调用 (重试 + Schema 校验) ----------
 
     def _call_llm_with_retry(self, prompt: str) -> LLMCallResult:
-        """Diana 4.5: 重试 + Schema 校验
+        """重试 + Schema 校验
 
         Raises:
             MvPlannerError: 所有重试都失败
@@ -637,7 +637,7 @@ class MvPlanner:
         llm_error: Exception,
         history: Optional[List[IntentRecord]],
     ) -> dict:
-        """降级策略 (Diana 4.5)
+        """降级策略 ()
 
         1. 有 history → 用最新一条 (标记 cache_fallback)
         2. 无 history → 用规则版 fallback
@@ -677,7 +677,7 @@ class MvPlanner:
         llm_error: Optional[str] = None,
         task_id: Optional[str] = None,  # 2026-08-09 P1-4
     ) -> int:
-        """写库 (Diana 2.5 is_latest 维护)"""
+        """写库 (is_latest 维护)"""
         # 计算下一个 version 号
         next_version = self.repo.count_versions(audio_id) + 1
 
@@ -794,7 +794,7 @@ class MvPlanner:
         missing = required - set(data.keys())
         if missing:
             raise MvPlannerError(f"LLM 输出缺字段: {missing}")
-        # 老杨 8/9 10:30 拍板: 不再要求分段时间轴 (video_prompts)
+        # 不再要求分段时间轴 (video_prompts)
         # theme_keywords_en 是 Pexels 搜索关键词, theme_keywords_cn 是中文意境
         # 不需要再校验 video_prompts 数组
         return data

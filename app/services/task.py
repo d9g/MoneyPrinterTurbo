@@ -582,7 +582,7 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
 
     subtitle_path = path.join(utils.task_dir(task_id), "subtitle.srt")
 
-    # === Diana 8/8: LRC 歌词精准对齐分支 ===
+    # === LRC 歌词精准对齐分支 ===
     lrc_file = getattr(params, "lrc_file", None)
     if lrc_file and os.path.isfile(lrc_file):
         logger.info(f"\n\n## generating subtitle from LRC: {lrc_file}")
@@ -1335,7 +1335,7 @@ def _run_pipeline(
     loomloom_video_request: loomloom.LoomLoomConfirmedVideoRequest | None = None,
     allow_server_file_input: bool = False,
 ):
-    # 老杨 8/9 11:01 拍板: 加阶段日志, 让你能直接看 main.py 端进度
+    # 加阶段日志, 让你能直接看 main.py 端进度
     logger.info(f"🎬 [_run_pipeline] START task={task_id} stop_at={stop_at} subject={params.video_subject[:50]}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
     logger.info(f"  [5%] 预检完成")

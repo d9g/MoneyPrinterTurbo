@@ -1,15 +1,14 @@
 """
 mv — MV 模式核心服务包
-老杨 2026-08-07 22:18 拍板
 
-老杨 8/9 10:30 拍板: 简化为基础 video 生成
+简化为基础 video 生成
 - 删 VideoPromptSchema (不再分段时间轴)
 - 保留: IntentSchema + IntentRepository + validate_intent
 
 子模块:
-- db: SQLite 客户端 (Diana 2.4 + 2.5 + 4.4 全部吸收)
-- intent_repository: 意境历史 CRUD (Diana 4.5 并发锁)
-- mv_intent_schema: Pydantic JSON Schema 校验 (Diana 2.3)
+- db: SQLite 客户端 (2.5 + 4.4 全部吸收)
+- intent_repository: 意境历史 CRUD (并发锁)
+- mv_intent_schema: Pydantic JSON Schema 校验 ()
 """
 from .intent_repository import IntentRecord, IntentRepository, get_intent_repository
 from .mv_intent_schema import (

@@ -1,6 +1,6 @@
 """
 mv.db — MV 意境历史 SQLite 客户端
-老杨 2026-08-07 22:18 拍板: 独立 SQLite (option A)
+独立 SQLite (option A)
 
 使用示例:
     from app.services.mv.db import get_db, init_db

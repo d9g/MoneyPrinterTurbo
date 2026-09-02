@@ -1,6 +1,6 @@
 """
 audio.analyzer — 主入口: analyze_audio(path) -> AudioFeatures
-Diana 审计 4.2 加缓存层
+审计项 4.2 加缓存层
 """
 from pathlib import Path
 from typing import Dict, Tuple
@@ -21,7 +21,7 @@ from .preprocess import preprocess_audio
 # 支持的音频格式
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma"}
 
-# 加密格式 (2026-08-10 老杨拍板: 不提供服务端解密, 友好报错引导本地解密)
+# 加密格式 (2026-08-10 不提供服务端解密, 友好报错引导本地解密)
 ENCRYPTED_EXTENSIONS = {
     ".ncm",       # 网易云音乐
     ".qmc",       # QQ 音乐
@@ -37,7 +37,7 @@ ENCRYPTED_EXTENSIONS = {
 
 _UNLOCK_MUSIC_URL = "https://git.unlock-music.dev/"
 
-# Diana 4.2: 缓存层 (文件 hash -> AudioFeatures)
+# 缓存层 (文件 hash -> AudioFeatures)
 _analysis_cache: Dict[str, AudioFeatures] = {}
 
 
@@ -60,7 +60,6 @@ def _file_hash(path: str) -> str:
 def _validate_path(path: str) -> None:
     """验证文件存在 + 格式支持
 
-    2026-08-10 老杨拍板:
       - 加密格式 (.ncm/.qmc/.mgg 等) 友好报错, 引导用户本地解密后重新上传
       - 本工具不提供、不参与任何平台加密机制的绕过
     """
@@ -84,7 +83,7 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
 
     Args:
         path: 音频文件路径
-        use_cache: 是否使用缓存 (Diana 4.2, 默认 True)
+        use_cache: 是否使用缓存 (默认 True)
 
     Returns:
         AudioFeatures (dataclass, 含 .to_dict() 转 JSON)
@@ -94,16 +93,16 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
     """
     _validate_path(path)
 
-    # Diana 4.2: 缓存命中
+    # 缓存命中
     cache_key = _file_hash(path) if use_cache else None
     if cache_key and cache_key in _analysis_cache:
         logger.info(f"audio_analyzer: cache hit for {path}")
         return _analysis_cache[cache_key]
 
-    # 1. 预处理 (Diana 4.3)
+    # 1. 预处理 ()
     y, sr = preprocess_audio(path)
 
-    # 1.5 ID3 tag (Diana 2.2 歌曲指纹第一层, v2-7 新增)
+    # 1.5 ID3 tag (歌曲指纹第一层, v2-7 新增)
     from .id3_utils import read_id3_tags
     id3_metadata = read_id3_tags(path)
 
@@ -114,9 +113,9 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
     dynamic_info = get_dynamic(y, sr)
     spectral_info = get_spectral(y, sr)
     sections = detect_sections(y, sr)
-    chorus_segments = detect_chorus_segments(y, sr, top_k=6)  # 老杨 8/8 17:34: detect 多个, UI 列表只显示前 3 个 (识别出几个就返回几个)
+    chorus_segments = detect_chorus_segments(y, sr, top_k=6)  # detect 多个, UI 列表只显示前 3 个 (识别出几个就返回几个)
 
-    # 3. 风格识别 (Diana 3.1, v2.0 占位)
+    # 3. 风格识别 (v2.0 占位)
     style_info = detect_style(
         y, sr,
         tempo_bpm=tempo_info.bpm,
@@ -134,9 +133,9 @@ def analyze_audio(path: str, use_cache: bool = True) -> AudioFeatures:
         dynamic=dynamic_info,
         spectral=spectral_info,
         sections=sections,
-        chorus_segments=chorus_segments,  # Diana 8/8
+        chorus_segments=chorus_segments,
         style=style_info,
-        id3_metadata=id3_metadata,    # Diana 2.2 歌曲指纹第一层 (v2-7 新增)
+        id3_metadata=id3_metadata,  # 歌曲指纹第一层 (v2-7 新增)
     )
 
     # 4. 写缓存
@@ -161,12 +160,12 @@ def analyze_audio_with_audio(path: str, use_cache: bool = True) -> Tuple[AudioFe
       - features: AudioFeatures
       - y, sr: librosa 加载后的音频数据 + 采样率
 
-    缓存层沿用 _analysis_cache (Diana 4.2)。
+    缓存层沿用 _analysis_cache ()。
     缓存命中分支直接复用 features, 不重新加载 y, sr (调用方需要再处理)。
     """
     _validate_path(path)
 
-    # Diana 4.2: 缓存命中
+    # 缓存命中
     cache_key = _file_hash(path) if use_cache else None
     if cache_key and cache_key in _analysis_cache:
         logger.info(f"audio_analyzer: cache hit for {path}")
@@ -174,7 +173,7 @@ def analyze_audio_with_audio(path: str, use_cache: bool = True) -> Tuple[AudioFe
         y, sr = None, None  # type: ignore
         return _analysis_cache[cache_key], y, sr
 
-    # 1. 预处理 (Diana 4.3)
+    # 1. 预处理 ()
     y, sr = preprocess_audio(path)
 
     # 1.5 ID3 tag

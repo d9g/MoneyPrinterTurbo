@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mv_nightly.py — 老杨 8/8 21:09 拍板
+mv_nightly.py
 
 夜间批量生成 MV 脚本：
 - 读歌单 (JSON / YAML / CSV)
@@ -114,7 +114,7 @@ def build_params(task: Dict[str, Any]) -> Dict[str, Any]:
         "custom_audio_file": audio_path,
     }
 
-    # 老杨 8/8 21:09: 高潮段独立 MV
+    # 高潮段独立 MV
     if "audio_clip_range_start" in task and "audio_clip_range_end" in task:
         params["audio_clip_range_start"] = float(task["audio_clip_range_start"])
         params["audio_clip_range_end"] = float(task["audio_clip_range_end"])
@@ -155,7 +155,7 @@ def poll_task(api_base: str, task_id: str, timeout_s: int = 7200) -> Dict[str, A
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="夜间批量生成 MV (Diana 8/8 21:09)",
+        description="夜间批量生成 MV ()",
     )
     parser.add_argument("playlist", help="歌单 JSON/YAML/CSV 路径")
     parser.add_argument("--api", default="http://127.0.0.1:8080", help="main.py API base URL")

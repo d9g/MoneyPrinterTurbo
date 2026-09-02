@@ -848,7 +848,7 @@ def _collect_task_summaries(limit=20):
         video_file = (
             video_files[0] if video_files else history_task.get("video_file", "")
         )
-        # 2026-08-09 老杨 20:03 bug 修复:
+        # 2026-08-09 bug 修复:
         # 老代码 task.get("video_subject") 只拿 Redis 顶层 video_subject 字段
         # mv_batch 提交的 task 只存 params dict (params.video_subject 嵌套),
         # webui 提交的 task 才顶层 video_subject.
@@ -887,7 +887,7 @@ def _collect_task_summaries(limit=20):
 
     for task_id, active_task in _active_generation_tasks().items():
         history_task = history_tasks.get(task_id, {})
-        # 2026-08-09 老杨 20:03 bug 修复:
+        # 2026-08-09 bug 修复:
         # 老代码只跳 complete/failed 状态的任务, 但 mv_batch 提交的 task
         # (老代码) 在 history 里 state=None, 没有 final-1.mp4 -> video_file=空
         # (因为 P2-7 修复前 script.json 没写 final-1.mp4 路径).
@@ -1119,9 +1119,9 @@ def _render_task_table(filtered_tasks, key_prefix):
                         help=play_label,
                         disabled=not has_video,
                     ):
-                        # 2026-08-09 老杨 19:19 拍板 B 方案: 跳转任务详情页 (那里已有 st.video)
+                        # 2026-08-09 B 方案: 跳转任务详情页 (那里已有 st.video)
                         # 之前调 _open_task_video -> 服务器端 xdg-open -> 远端无桌面失败
-                        # Streamlit popover 没 API 直接 close, 老杨点 popover 外关掉即可
+                        # Streamlit popover 没 API 直接 close, 点 popover 外关掉即可
                         st.session_state["current_generation_task_id"] = task_id
                         st.session_state["task_manager_popover_nonce"] = (
                             st.session_state.get("task_manager_popover_nonce", 0) + 1
@@ -1572,7 +1572,7 @@ def _render_top_bar():
             _render_pending_version_check()
 
     with actions_col:
-        # 老杨 8/8 17:34: 临时成功提示 (avoid st.toast fragment rerun x2)
+        # 临时成功提示 (avoid st.toast fragment rerun x2)
         _apply_msg = st.session_state.pop("_mv_apply_message", None)
         if _apply_msg:
             apply_ts = st.session_state.pop("_mv_apply_message_ts", 0)
@@ -1798,7 +1798,7 @@ def _render_generation_logs(task_id):
 def _render_generation_task_snapshot(task_id, task):
     """根据状态存储中的快照渲染进度、失败原因或最终成片。"""
     if not task:
-        # 2026-08-09 老杨 20:18 bug 修复:
+        # 2026-08-09 bug 修复:
         # 老代码: task=None 时直接 st.info("Generating Video"), 用户看到 '正在生成' 永远不消失
         # 真根因: 老 task (Redis 状态过期被清理) 在 session current_generation_task_id 里残留
         # 修复: task=None 时先看本地 storage/tasks/<id>/ 有没有 final-1.mp4,
@@ -1923,7 +1923,7 @@ def _render_running_generation_task(task_id):
         st.error(tr("Video Generation Failed"))
         return
 
-    # 2026-08-09 老杨 20:18 bug 修复:
+    # 2026-08-09 bug 修复:
     # 老代码: task=None 时直接 _render_generation_task_snapshot(task_id, None)
     #         -> snapshot 显示 'Generating Video' + fragment 每 2s 轮询
     # -> 用户看到 '正在生成视频请稍候' 永远不消失
@@ -1965,7 +1965,7 @@ def _render_current_generation_task():
         _render_generation_task_snapshot(task_id, task)
         return
 
-    # 2026-08-09 老杨 20:18 bug 修复:
+    # 2026-08-09 bug 修复:
     # 老代码: task=None 时走 _render_running_generation_task -> fragment 反复轮询
     # 修复: task=None 也调 snapshot (那里加了 history fallback 看 final-1.mp4)
     if task is None:
@@ -2930,9 +2930,9 @@ def _render_key_backup_settings(panel):
     on_dismiss=_dismiss_settings_dialog,
 )
 def _render_mv_analysis_settings(panel):
-    """MV 意境分析设置 (老杨 8/8 17:40 拍板)
+    """MV 意境分析设置 ()
 
-    放在 Settings dialog 里, 供老杨调:
+    放在 Settings dialog 里, 供调试:
     - MV LLM 重跑上限 (同 signature 重跑 N 次后复用缓存)
     - 高潮检测参数 (top_k)
     - 缓存时间 (TTL 天)
@@ -3155,7 +3155,7 @@ def _render_settings_dialog():
         # 密钥恢复会写回配置并清除密码控件状态，必须在下面渲染这些控件之前执行。
         _render_key_backup_settings(key_backup_panel)
 
-        # === MV 分析设置 (老杨 8/8 17:40) ===
+        # === MV 分析设置 () ===
         _render_mv_analysis_settings(mv_config_panel)
 
         # 中间面板 - LLM 设置
@@ -5340,15 +5340,15 @@ def _render_elevenlabs_api_key_input(label_key):
     ).strip()
 
 
-# ================ 音频分析模块 (老杨 8/8 13:19 拍板) ================
-# 上传音频后点"分析这首音乐"按钮 → 调老杨新开发的 mv.analyze 服务 →
+# ================ 音频分析模块 () ================
+# 上传音频后点"分析这首音乐"按钮 → 调用 mv.analyze 服务 →
 # 回显曲调特征 + 意境总结 + 一键填充到 video_script / video_terms 两个输入框。
-# 缓存策略: 同 song_signature 重跑 ≤ 3 次, 超过读缓存; 缓存超过 180 天才允许重跑 (Q5 老杨拍板).
+# 缓存策略: 同 song_signature 重跑 ≤ 3 次, 超过读缓存; 缓存超过 180 天才允许重跑 (Q5).
 
-_MV_CACHE_REANALYZE_LIMIT = 5     # 同 signature 重跑上限 (老杨 8/8 17:34: 默认5,调试时可调)
+_MV_CACHE_REANALYZE_LIMIT = 5  # 同 signature 重跑上限 (默认5,调试时可调)
 _MV_CACHE_TTL_DAYS = 180          # 超过 N 天才允许重新调 LLM (半年到 1 年阈值下限)
 _MV_AUDIO_SESSION_KEY = "mv_audio_analysis_result"  # session_state 里存结果的 key
-# 老杨 8/8 21:41: 改为一次性信号. 原因: flag=True 会让后续所有 rerun 都弹, 主界面其他
+# 改为一次性信号. 原因: flag=True 会让后续所有 rerun 都弹, 主界面其他
 # 选项改动都触发弹窗. 现在: 弹后立即 pop, 只有用户主动点击才产生新信号
 _MV_DIALOG_REQUEST_KEY = "mv_audio_analysis_dialog_request"  # 一次性信号: True=下轮弹
 _MV_DIALOG_FLAG_KEY = _MV_DIALOG_REQUEST_KEY  # 向后兼容别名 (遗留代码可能还用)
@@ -5396,7 +5396,7 @@ def _compute_song_signature_for_upload(audio_path: str, features: dict, id3_meta
 def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dict, str]:
     """Q5 缓存策略判断
 
-    老杨 8/8 14:00 bug: 同一个歌分析三次都 first_run
+    bug: 同一个歌分析三次都 first_run
     根因: webui 每次生成新 uuid file_id (storage/mv/mva-aaa.mp3), DB 按 file_id 查
     永远查不到历史记录
     修法: 改为按 song_signature 查询 (相同歌永远同 signature, 跟上传次数无关)
@@ -5408,12 +5408,12 @@ def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dic
     """
     from datetime import datetime, timedelta
 
-    # 老杨 8/8 17:34: 调试开关, 勾选后绕过缓存强制重跑 LLM
+    # 调试开关, 勾选后绕过缓存强制重跑 LLM
     import streamlit as st
     if st.session_state.get(_MV_FORCE_RERUN_KEY, False):
         return True, None, "force_rerun (debug)"
 
-    # 老杨 14:00 bug fix: 按 song_signature 查 (跨 audio_id 重用)
+    # bug fix: 按 song_signature 查 (跨 audio_id 重用)
     latest = repo.get_latest_by_signature(song_signature) if song_signature else None
     if not latest:
         return True, None, "first_run"
@@ -5449,7 +5449,7 @@ def _should_run_llm(repo, audio_id: str, song_signature: str) -> tuple[bool, dic
 
 
 def _render_mureka_prompts_section(features: dict, version: int):
-    """老杨 2026-08-17 16:08 拍板: 弹窗内增加 AI 歌曲提示词 (Mureka) 折叠段
+    """弹窗内增加 AI 歌曲提示词 (Mureka) 折叠段
 
     读取 features → 调用 generate_mureka_prompts() 生成 4 个提示词
     - zh_short / zh_long (中文精简 + 详细)
@@ -5469,7 +5469,7 @@ def _render_mureka_prompts_section(features: dict, version: int):
     try:
         from app.services.audio.mureka_prompts import generate_mureka_prompts
         from app.services.audio.models import AudioFeatures as AudioFeaturesDC
-        # 老杨 8/17 21:23 修复: 用 from_dict() 递归还原嵌套 dataclass
+        # 修复: 用 from_dict() 递归还原嵌套 dataclass
         # 之前直接传 dict, style.vocal_type 等嵌套属性访问会报 'dict has no attribute'
         af = AudioFeaturesDC.from_dict(features) if isinstance(features, dict) else features
         prompts = generate_mureka_prompts(af)
@@ -5503,7 +5503,7 @@ def _render_mureka_prompts_section(features: dict, version: int):
 
     st.caption(
         "💡 中英双版可用于 Mureka / Suno / Udio 等 AI 歌曲生成。英文版为意译"
-        "（老杨原话:warm/intimate/Chinese folk singer style raw vocal quality）"
+        "（warm/intimate/Chinese folk singer style raw vocal quality）"
     )
 
     # 5. 应用按钮 - 把简体中文版词条加入 video_terms
@@ -5594,7 +5594,7 @@ def _format_audio_features_for_humans(features: dict) -> str:
     if sections:
         lines.append(f"📐 **段落 (Sections)**: {len(sections)} 段")
 
-    # 风格识别 (Diana 3.1)
+    # 风格识别 ()
     if style:
         genre = style.get("genre", "")
         genre_conf = style.get("genre_confidence", 0)
@@ -5669,7 +5669,7 @@ def _format_mv_plan_for_humans(plan: dict) -> str:
 
 
 def _find_matching_lrc_for_uploaded_audio(uploaded_audio_file) -> str:
-    """老杨 2026-08-15 23:23 拍板: WebUI 上传 mp3 后, 自动匹配 storage/lrc/ 下的 LRC.
+    """WebUI 上传 mp3 后, 自动匹配 storage/lrc/ 下的 LRC.
 
     背景: LRC 上传时 (line 5006) 按 md5[:12] 命名, 但哈希的是 LRC 文件本身内容,
         不是对应的 mp3. 所以 mp3 跟 LRC md5 对不上.
@@ -5754,7 +5754,7 @@ def _run_audio_mv_analysis(
     uploaded_audio_file,
     lyrics_text: str = "",
 ) -> dict:
-    """老杨 8/8 拍板的核心函数: 上传音频 → 调 mv.analyze 服务 → 返回 plan + features
+    """的核心函数: 上传音频 → 调 mv.analyze 服务 → 返回 plan + features
 
     流程:
     1. 把 streamlit 上传文件存到 storage/mv/ (跟 FastAPI 路由一致)
@@ -5816,7 +5816,7 @@ def _run_audio_mv_analysis(
     # 4. Q5 缓存策略
     should_run, latest, reason = _should_run_llm(repo, file_id, signature_str)
     logger.info(f"mv_audio_analysis: should_run={should_run} reason={reason}")
-    # 老杨 8/8 17:34: 记下当前 signature 供 clear_cache 用
+    # 记下当前 signature 供 clear_cache 用
     st.session_state["_mv_last_signature"] = signature_str
 
     # 5. 决定: 重跑 / 复用缓存
@@ -5858,9 +5858,9 @@ def _run_audio_mv_analysis(
 
 @st.dialog(tr("Audio Analysis Panel"), width="large", on_dismiss="rerun")
 def _render_audio_analysis_dialog():
-    """老杨 8/8 13:34 拍板的弹窗: 曲调特征 + 意境 + 关键词 + 配色 + 段落拍摄 + 3 个应用按钮
+    """的弹窗: 曲调特征 + 意境 + 关键词 + 配色 + 段落拍摄 + 3 个应用按钮
 
-    老杨 13:34 原话: "折叠栏位太窄, 改成弹窗 (st.dialog) 更宽屏看"
+    "折叠栏位太窄, 改成弹窗 (st.dialog) 更宽屏看"
     - width="large" 加大宽度
     - 弹窗内可调用 callback (在弹窗本身之前执行, 不会触发 StreamlitAPIException)
     - 弹窗内改 video_script / video_terms 的 session_state 在 dialog 关闭后生效
@@ -5911,7 +5911,7 @@ def _render_audio_analysis_dialog():
     st.divider()
 
     # 应用按钮 + 关闭按钮
-    # 老杨 8/8 13:53 + 13:58 bug 修复:
+    # + 13:58 bug 修复:
     # 1. dialog button click 触发的是完整 script run (不是 partial rerun)
     # 2. on_click callback 在 script run 之前执行, 它改 session_state 对后续
     #    widget render 可见 (这是 streamlit 设计)
@@ -5925,7 +5925,7 @@ def _render_audio_analysis_dialog():
         pending["video_script_append"] = (pending.get("video_script_append") or "") + ("\n\n" if pending.get("video_script_append") else "") + ms
         pending["source_version"] = ver
         st.session_state[_MV_PENDING_APPLY_KEY] = pending
-        # 老杨 8/8 21:41: 不需手动设 flag=False. 一次性 signal 被 _render_audio_analysis_panel 弹后 pop.
+        # 不需手动设 flag=False. 一次性 signal 被 _render_audio_analysis_panel 弹后 pop.
         # callback 直接 st.rerun(scope='app') 触发 page rerun → _apply_pending_mv_audio 消费
         st.rerun(scope="app")
 
@@ -6006,17 +6006,17 @@ def _render_audio_analysis_dialog():
 
     st.divider()
 
-    # === AI 歌曲提示词 (Mureka) — 老杨 8/17 16:08 拍板 ===
+    # === AI 歌曲提示词 (Mureka) — ===
     # 折叠段默认收起, 不抩高弹窗. 详细程度 radio 动态切换精简/详细.
     with st.expander("🎵 AI 歌曲提示词 (Mureka)", expanded=False):
         _render_mureka_prompts_section(features, version)
 
     st.divider()
 
-    # === 高潮段检测 (Diana 8/8 老杨拍板) ===
-    # 老杨 17:34 原话: "有多少高潮就选几个, 识别不出来高潮就不选"
+    # === 高潮段检测 ===
+    # "有多少高潮就选几个, 识别不出来高潮就不选"
     # detect_chorus_segments 返回 1-N 个 (实际几个就几个)
-    # 老杨 17:40: UI 最多展示 3 个 -> 如果识别出 >3 个取 confidence 最高的 3 个, <3 个按数量显示
+    # UI 最多展示 3 个 -> 如果识别出 >3 个取 confidence 最高的 3 个, <3 个按数量显示
     chorus_segments = features.get("chorus_segments", []) if isinstance(features, dict) else []
     if chorus_segments:
         # 取前 3 个 (detect_chorus_segments 已经按 confidence 降序排过)
@@ -6043,7 +6043,7 @@ def _render_audio_analysis_dialog():
             chorus_options.append(idx - 1)
             chorus_labels.append(label)
 
-        # 选中的高潮段 (Diana 8/8)
+        # 选中的高潮段 ()
         chorus_select_key = "mv_dlg_chorus_selected"
         if chorus_select_key not in st.session_state:
             st.session_state[chorus_select_key] = 0  # 默认选第一个
@@ -6057,7 +6057,7 @@ def _render_audio_analysis_dialog():
             horizontal=True,
         )
 
-        # 回显高潮对应的搜索关键字 (Diana 8/8)
+        # 回显高潮对应的搜索关键字 ()
         # 从 video_prompts 里找匹配 section_index == selected_idx 的 prompt
         video_prompts = plan.get("video_prompts", [])
         matching_prompts = []
@@ -6075,7 +6075,7 @@ def _render_audio_analysis_dialog():
                 st.caption(f"{tr('MV Chorus Match Style')}: {chorus_style_cn}")
 
             # Apply 按钮 - 把该段关键词加入 video_terms
-            # 老杨 8/8 21:09: 同时存 chorus 段 start/end 到 pending,
+            # 同时存 chorus 段 start/end 到 pending,
             # 后面 _render_application() 读取时一并填到 video_script_params.
             # 这样用户点一下 "金生成高潮段 MV", 整案就能生成该段独立 MV.
             def _apply_chorus_keywords_callback(prompt: str, idx: int, start: float, end: float, ver: int):
@@ -6090,12 +6090,12 @@ def _render_audio_analysis_dialog():
                     pending["video_terms_append"] = new_terms
                 pending["keyword_count"] = pending.get("keyword_count", 0) + 1
                 pending["chorus_index"] = idx
-                # 老杨 8/8 21:09: 高潮段独立 MV - 存 start/end 到 pending
+                # 高潮段独立 MV - 存 start/end 到 pending
                 pending["chorus_range_start"] = round(start, 2)
                 pending["chorus_range_end"] = round(end, 2)
                 pending["source_version"] = pending.get("source_version", ver)
                 st.session_state[_MV_PENDING_APPLY_KEY] = pending
-                # 老杨 8/8 18:09: 全 app rerun 强制 page widget 看到新值
+                # 全 app rerun 强制 page widget 看到新值
                 st.rerun(scope="app")
 
             st.button(
@@ -6105,7 +6105,7 @@ def _render_audio_analysis_dialog():
                 type="secondary",
                 disabled=not chorus_prompt_en,
                 on_click=_apply_chorus_keywords_callback,
-                # 老杨 8/8 21:09: 传入 displayed_segments[selected_idx] (选中的 chorus segment)
+                # 传入 displayed_segments[selected_idx] (选中的 chorus segment)
                 #   .start / .end - 传个参数让 callback 知道当前选中段
                 args=(
                     chorus_prompt_en,
@@ -6123,8 +6123,6 @@ def _render_audio_analysis_dialog():
 def _render_mv_analysis_dialog(task_id: str, task: dict):
     """2026-08-09 P2-6: 任务管理点击 MV 按钮 → 弹窗查看这个 task 的 LLM plan
 
-    老杨 8/9 11:06 拍板: '这些功能是需要的, 你先加一下代码'
-
     内容:
     - audio_features (BPM / key / duration / sections / chorus)
     - LLM plan (mood_summary + theme_keywords 中英 + color_palette)
@@ -6135,7 +6133,7 @@ def _render_mv_analysis_dialog(task_id: str, task: dict):
     数据流: task_id → mv_intent_history.task_id → IntentRecord
     """
     try:
-        # 2026-08-09 老杨 19:31 bug 修复:
+        # 2026-08-09 bug 修复:
         # 原代码 IntentRepository(db=get_db()) 失败:
         #   get_db() 是懒加载, 首次调用必须传 db_path
         #   但 webui 启动时只调 init_mv_db() 建表, 没调过 get_db() 设置单例
@@ -6251,13 +6249,13 @@ def _render_mv_analysis_dialog(task_id: str, task: dict):
 
 
 def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice"):
-    """老杨 8/8 拍板的 UI: 上传音频后点按钮 → 弹窗里看分析结果 + 一键应用
+    """的 UI: 上传音频后点按钮 → 弹窗里看分析结果 + 一键应用
 
-    老杨 8/8 13:34 拍板: 改用 st.dialog 弹窗代替 expander, 宽屏看分析结果
+    改用 st.dialog 弹窗代替 expander, 宽屏看分析结果
 
-    2026-08-10 老杨拍板: 首次上传弹版权声明 (st.session_state 记忆, 不再每次打断)
+    2026-08-10 首次上传弹版权声明 (st.session_state 记忆, 不再每次打断)
 
-    2026-08-13 老杨拍板: 加 key_prefix 参数, 支持同一页面多处调用
+    2026-08-13 加 key_prefix 参数, 支持同一页面多处调用
         - 音频设置区上传语音： key_prefix="voice"
         - 背景音乐区上传音频：key_prefix="bgm"
         避免 widget key 冲突 (streamlit 不允许同页面两个同名 widget)
@@ -6266,7 +6264,7 @@ def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice")
         st.caption(tr("Audio Analysis No Audio"))
         return
 
-    # 2026-08-10 老杨拍板: 首次上传弹版权声明, session_state 记忆（全局共享, 不分 prefix）
+    # 2026-08-10 首次上传弹版权声明, session_state 记忆（全局共享, 不分 prefix）
     _COPYRIGHT_ACK_KEY = "_mpt_audio_copyright_acknowledged"
     if not st.session_state.get(_COPYRIGHT_ACK_KEY, False):
         with st.container(border=True):
@@ -6290,7 +6288,7 @@ def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice")
         """widget 实例化前调用, 在这里调分析服务写 session_state 安全"""
         with st.spinner(tr("Analyze Music Running")):
             try:
-                # 老杨 2026-08-15 23:23 拍板: WebUI 上传 mp3 后, 自动找匹配 lrc 加载歌词
+                # WebUI 上传 mp3 后, 自动找匹配 lrc 加载歌词
                 # 根因: 不加载歌词, mv_planner 拿不到 "半生烟雨走天涯" 等古典意象,
                 #       LLM 只看音频特征, 输出"golden hour / wheat field" 等西式场景.
                 # 修法: 按 mp3 md5[:12] (跟 LRC 上传时 webui/Main.py:4943 同一算法) 
@@ -6308,10 +6306,10 @@ def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice")
                     )
                 result = _run_audio_mv_analysis(uploaded_file, lyrics_text=lyrics_text)
                 st.session_state[_MV_AUDIO_SESSION_KEY] = result
-                # 老杨 8/8 21:31: 按段落拼接 - 存 plan + features 供视频生成用
+                # 按段落拼接 - 存 plan + features 供视频生成用
                 st.session_state["_mv_current_plan"] = result.get("plan")
                 st.session_state["_mv_current_features"] = result.get("features")
-                # 老杨 8/8 21:41 bug 修复: 用一次性信号代替持久 flag
+                # bug 修复: 用一次性信号代替持久 flag
                 # 原因: flag=True 会让后续所有 rerun 都重复弹窗, 哪怕主界面其他改动
                 # 用 _MV_DIALOG_REQUEST_KEY: 在下轮 rerun 弹, 弹后立即清
                 st.session_state[_MV_DIALOG_REQUEST_KEY] = True
@@ -6320,7 +6318,7 @@ def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice")
                 st.error(tr("Audio Analysis Failed").format(error=str(exc)))
 
     def _open_dialog_callback():
-        # 老杨 8/8 21:41 bug 修复: 一次性信号代替持久 flag
+        # bug 修复: 一次性信号代替持久 flag
         st.session_state[_MV_DIALOG_REQUEST_KEY] = True
 
     btn_cols = st.columns([1, 1], gap="small")
@@ -6344,7 +6342,7 @@ def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice")
             on_click=_open_dialog_callback,
         )
 
-    # === Debug 控件 (老杨 8/8 17:34 拍板) ===
+    # === Debug 控件 () ===
     # 同一首歌测试不同 LLM 输出时: 勾选 "强制重跑" 绕过缓存
     # 调试清缓存: 勾选后点 "清 MV 缓存" 删除该歌的所有历史 LLM 输出
     debug_cols = st.columns([1, 1], gap="small")
@@ -6383,7 +6381,7 @@ def _render_audio_analysis_panel(uploaded_audio_file, key_prefix: str = "voice")
             on_click=_clear_mv_cache_callback,
         )
 
-    # 老杨 8/8 21:41 bug 修复: 用一次性信号代替持久 flag
+    # bug 修复: 用一次性信号代替持久 flag
     # 原 bug: 主界面其他选项改动触发 rerun → flag 还是 True → dialog 又弹
     # 修法: 一次性信号 key, 弹后立即 pop. 只有用户主动点击才产生新信号
     if st.session_state.pop(_MV_DIALOG_REQUEST_KEY, False):
@@ -6537,7 +6535,7 @@ def _render_background_music_settings(params, elevenlabs_api_key_rendered=False)
                 )
                 st.audio(uploaded_bgm_file, format=preview_mime_type)
                 st.info(f"{tr('Background Music Ready')}: {safe_name}")
-                # 老杨 8/13 拍板: 背景音乐也加 MV 歌曲评价入口，跟音频设置里的上传语音一致
+                # 背景音乐也加 MV 歌曲评价入口，跟音频设置里的上传语音一致
                 _render_audio_analysis_panel(uploaded_bgm_file, key_prefix="bgm")
                 params.bgm_file = safe_name
 
@@ -7142,9 +7140,9 @@ def _render_audio_settings(panel, params):
                             "Custom audio will be used directly. TTS synthesis will be skipped for this task."
                         )
                     )
-                    # 老杨 8/8 13:19 拍板: 上传音频后点按钮调 mv.analyze 服务
+                    # 上传音频后点按钮调 mv.analyze 服务
                     _render_audio_analysis_panel(uploaded_audio_file, key_prefix="voice")
-                    # 老杨 8/8 21:09: 高潮段独立 MV - 从 mv.audio.apply 后存到 session_state
+                    # 高潮段独立 MV - 从 mv.audio.apply 后存到 session_state
                     # audio_clip_range_start/audio_clip_range_end 这里以 expander 显示
                     _audio_clip_range_start = st.session_state.get("audio_clip_range_start")
                     _audio_clip_range_end = st.session_state.get("audio_clip_range_end")
@@ -7184,7 +7182,7 @@ def _render_audio_settings(panel, params):
                                 st.session_state["_mv_apply_message"] = "🚮 高潮段已清除"
                                 st.session_state["_mv_apply_message_ts"] = time.time()
                                 st.rerun(scope="app")
-                        # 老杨 8/8 21:31: 按段落拼接开关 - 默认 false, 只有音频分析后才能启用
+                        # 按段落拼接开关 - 默认 false, 只有音频分析后才能启用
                         _plan_in_session = st.session_state.get("_mv_current_plan")
                         _n_prompts = len((_plan_in_session or {}).get("video_prompts", []))
                         st.checkbox(
@@ -7220,7 +7218,7 @@ def _render_subtitle_settings(panel, params):
             _set_runtime_config("ui", "subtitle_enabled", params.subtitle_enabled)
             subtitle_settings_disabled = not params.subtitle_enabled
 
-            # === LRC 歌词精准对齐 (Diana 8/8 老杨拍板) ===
+            # === LRC 歌词精准对齐 ===
             # 勾选后上传 LRC 文件, 字幕按歌词时间戳精准对齐 (不用 TTS/Whisper 推断)
             st.session_state.setdefault(
                 "subtitle_use_lrc_checkbox", False
@@ -7242,7 +7240,7 @@ def _render_subtitle_settings(panel, params):
                 )
                 if uploaded_lrc is not None:
                     # 保存上传的 LRC 到 workspace 目录
-                    # 老杨 8/8 17:40 bug fix:
+                    # bug fix:
                     #   1. utils.root_dir() 返回 str, 不能用 / 运算符
                     #   2. 原 re.sub(r"[^\\w\\-_\\.]", "_") 会把中文文件名换成下划线
                     #      重写为只过滤路径分隔符 / 控制字符, 保留中英文
@@ -7758,7 +7756,7 @@ def _render_generation_controls(
             with open(custom_audio_path, "wb") as f:
                 f.write(uploaded_audio_file.getbuffer())
             params.custom_audio_file = custom_audio_path
-            # 老杨 8/8 21:09: 高潮段独立 MV - 从 session_state 拿 audio_clip_range_start/end
+            # 高潮段独立 MV - 从 session_state 拿 audio_clip_range_start/end
             _audio_clip_range_start = st.session_state.get("audio_clip_range_start")
             _audio_clip_range_end = st.session_state.get("audio_clip_range_end")
             if _audio_clip_range_start is not None and _audio_clip_range_end is not None:
@@ -7767,7 +7765,7 @@ def _render_generation_controls(
             else:
                 params.audio_clip_range_start = None
                 params.audio_clip_range_end = None
-            # 老杨 8/8 21:31: 按段落拼接 - 从 session_state 拿 mv_plan / mv_features
+            # 按段落拼接 - 从 session_state 拿 mv_plan / mv_features
             _mv_plan = st.session_state.get("_mv_current_plan")
             _mv_features = st.session_state.get("_mv_current_features")
             _use_seg = st.session_state.get("use_segmented_concat", False)
@@ -7882,7 +7880,7 @@ def _render_generation_controls(
 def _apply_pending_mv_audio():
     """消费 _MV_PENDING_APPLY_KEY 队列, 在 widget 实例化前将内容合并到 video_script / video_terms
 
-    老杨 8/8 13:53 bug 修复: dialog button click 只 rerun dialog function, 不能直接
+    bug 修复: dialog button click 只 rerun dialog function, 不能直接
     改 page widget 的 session_state key (会触发 StreamlitAPIException)。
     解法: dialog callback 只写 pending dict, _render_application() 顶部 widget
     实例化前从 pending 读出来合并到 widget key。 (跟 _apply_pending_task_restore 同模式)
@@ -7890,7 +7888,7 @@ def _apply_pending_mv_audio():
     Returns:
         bool: 是否处理了 pending (供 _render_application() 提示 toast)
 
-    老杨 8/8 17:34: 去掉 st.toast() 避免 fragment rerun 乘 2
+    去掉 st.toast() 避免 fragment rerun 乘 2
     改为写一个 transient session_state 标志位, top bar 显示一个临时 '✓ 已应用' 提示
     """
     pending = st.session_state.pop(_MV_PENDING_APPLY_KEY, None)
@@ -7916,7 +7914,7 @@ def _apply_pending_mv_audio():
         else:
             st.session_state["video_terms"] = terms_append
 
-    # 老杨 8/8 17:34: 不用 st.toast() (会调 st.rerun + 乘 2 fragment rerun)
+    # 不用 st.toast() (会调 st.rerun + 乘 2 fragment rerun)
     # 改为 session_state 标志 + top bar 渲染, 50s 后过期
     if script_append and terms_append:
         st.session_state["_mv_apply_message"] = "✅ Applied to both fields"
@@ -7925,7 +7923,7 @@ def _apply_pending_mv_audio():
             f"✅ Applied mood (v{pending.get('source_version', 0)})"
         )
     elif terms_append and keyword_count:
-        # 老杨 8/8 21:09: 高潮段独立 MV - 拿到 chorus_range_start/end
+        # 高潮段独立 MV - 拿到 chorus_range_start/end
         # 写到 session_state. 后交参数采集时使用生成高潮段 MV
         chorus_start = pending.get("chorus_range_start")
         chorus_end = pending.get("chorus_range_end")
@@ -7964,7 +7962,7 @@ def _render_application():
     if restore_applied or restore_succeeded:
         st.success(tr("Task Configuration Loaded"))
 
-    # 老杨 8/8 13:53: 在 video_script / video_terms widget 实例化之前消费音频分析 pending
+    # 在 video_script / video_terms widget 实例化之前消费音频分析 pending
     # (跟 _apply_pending_task_restore 同模式)
     _apply_pending_mv_audio()
 

@@ -1,6 +1,6 @@
 """
 歌词解析器 - MoneyPrinterTurbo MV 模式
-老杨 2026-08-07 14:53 拍板: 支持 lrc / qrc / txt 三种歌词文件.
+支持 lrc / qrc / txt 三种歌词文件.
 
 输入: 文件路径 (按扩展名自动识别)
 输出: 统一格式 [{
@@ -11,7 +11,7 @@
 
 QRC 加密:
     QQ 音乐 .qrc 是 base64 + XOR 加密格式, 用 QRCD 库解密.
-    老杨 14:53 拍板: 默认 QRCD, PyPI 备选 QQMusicDES.
+    默认 QRCD, PyPI 备选 QQMusicDES.
 """
 import base64
 import json
@@ -174,7 +174,7 @@ def parse_qrc_file(qrc_path: str) -> list:
     """解析 .qrc QQ 音乐加密歌词.
 
     策略:
-      1. 优先用 QRCD 库 (xmcp/GitHub, 老杨拍板)
+      1. 优先用 QRCD 库 (xmcp/GitHub)
       2. 失败回退到 QQMusicDES (PyPI)
       3. 都没装返回 []
 

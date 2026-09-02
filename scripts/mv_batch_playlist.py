@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-mv_batch_playlist.py — 老杨 8/8 23:51 拍板
+mv_batch_playlist.py
 
-老杨 8/9 10:30 拍板: MV 模式回退到基础 video 生成
+MV 模式回退到基础 video 生成
 - 一首歌 = 一个完整视频 (不切分段落)
 - LLM 只分析意境 + 关键词, Pexels 按关键词搜视频
 - 字幕用 LRC 歌词
@@ -12,7 +12,7 @@ mv_batch_playlist.py — 老杨 8/8 23:51 拍板
 对每首歌跑 7 步流程 (LLM 分析 + 歌词字幕 + 完整视频拼接),
 串行提交到 main.py (http://127.0.0.1:8080), 输出 final-1.mp4 路径。
 
-老杨 23:48 设计要求:
+设计要求:
 - 不设置背景音乐 (bgm_type="")
 - 字幕用 LRC 歌词 (lrc_file=)
 - 视频转场随机 (shuffle / fade_in / slide_in / zoom_in / zoom_out)
@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-# 老杨 8/9 08:19 拍板: print 没 flush, log 看不出进度. 全部 print 走这里.
+# print 没 flush, log 看不出进度. 全部 print 走这里.
 _print = print
 
 
@@ -58,7 +58,7 @@ SONGS_DIR = Path("/root/MoneyPrinterTurbo/resource/songs")
 API_BASE = "http://127.0.0.1:8080"
 DB_PATH = "storage/mv/mv_intent.db"
 
-# 老杨 23:48: 视频转场在 5 个里随机
+# 视频转场在 5 个里随机
 TRANSITION_MODES = [
     "Shuffle",
     "FadeIn",
@@ -90,8 +90,8 @@ def parse_lyrics(lrc_path: Path) -> str:
 def build_plan(features: Dict[str, Any], lyrics_text: str, signature: str, audio_id: str, artist: Optional[str] = None, title: Optional[str] = None, task_id: Optional[str] = None) -> Dict[str, Any]:
     """Step 3: LLM 出方案 (意境 + 中英关键词 + 调色)
 
-    老杨 8/9 10:30 拍板: 不再输出分段时间轴, theme_keywords_en 给 Pexels 搜视频
-    老杨 8/9 10:32 拍板: 传 audio_id 让 plan 写库 (P1-5 修复)
+    不再输出分段时间轴, theme_keywords_en 给 Pexels 搜视频
+    传 audio_id 让 plan 写库 (P1-5 修复)
     2026-08-09 P1-4: 传 task_id 关联 video task (mv_intent_history.task_id)
     """
     from app.services.mv_planner import MvPlanner
@@ -119,13 +119,13 @@ def build_params(
 ) -> Dict[str, Any]:
     """Step 4: 构造 VideoParams dict
     
-    老杨 8/9 10:30 拍板: 基础 video 生成 (不切分)
+    基础 video 生成 (不切分)
     - video_terms = theme_keywords_en (LLM 产出的英文关键词)
     - custom_audio_file = OGG (替换 TTS)
     - lrc_file = LRC (字幕)
     - 无 use_segmented_concat / mv_plan / mv_features
     """
-    # 老杨 8/8 schema 拍板 (基础版):
+    # schema (基础版):
     # - mood_summary (中文意境描述)
     # - theme_keywords_en (英文搜索词 -> pexels 用)
     # - theme_keywords_cn (中文意境词)
@@ -137,23 +137,23 @@ def build_params(
     params = {
         # 基础
         "video_subject": (plan.get("mood_summary") or plan.get("mood") or ogg_path.stem)[:200],
-        # 老杨 23:51: MV 不用视频文案, 直接走歌词字幕
+        # MV 不用视频文案, 直接走歌词字幕
         "video_script": "",
         "video_terms": search_terms,
         "video_aspect": "9:16",
         "video_concat_mode": "random",
         "video_transition_mode": transition,
-        # 2026-08-09 老杨 12:46: clip 从 3s → 8s, 减少下载+combine 内存
+        # 2026-08-09 clip 从 3s → 8s, 减少下载+combine 内存
 # 264s 音频 × 8s/clip = 33 个 clip, 距 40 上限有 space buffer
 "video_clip_duration": 8,
         "video_clip_speed": 1.0,
         "video_count": 1,
         "video_source": "pexels",
         "video_language": "",
-        # 老杨 23:48: 不设置背景音乐
+        # 不设置背景音乐
         "bgm_type": "",
         "bgm_volume": 0.0,
-        # 老杨 23:48/23:51: 字幕用 LRC 歌词
+        # /23:51: 字幕用 LRC 歌词
         "subtitle_enabled": True,
         "lrc_file": str(lrc_path),
         "subtitle_position": "bottom",
@@ -175,12 +175,12 @@ def build_params(
 def submit_task(api_base: str, params: Dict[str, Any]) -> str:
     """Step 5: POST /api/v1/videos 提交任务 (main.py 的实际路径)
 
-    老杨 8/8 main.py 路由: TaskVideoRequest(VideoParams) 直接接 body
+    main.py 路由: TaskVideoRequest(VideoParams) 直接接 body
     所以 body 就是 params dict, 不是 {"params": ...} 包裹
     """
     url = f"{api_base.rstrip('/')}/api/v1/videos"
     print(f"  📤 POST {url}")
-    # 老杨 8/8 fix: body 直接是 params dict (TaskVideoRequest 继承 VideoParams)
+    # fix: body 直接是 params dict (TaskVideoRequest 继承 VideoParams)
     resp = requests.post(url, json=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
@@ -203,7 +203,6 @@ def poll_task(
 ) -> Dict[str, Any]:
     """Step 6: 轮询 /api/v1/tasks/{id} 直到 completed (审计 D 修复)
 
-    老杨 8/9 07:59 拍板修复:
     - 之前 HTTPError/404 被 except Exception 抓住 → 死循环到 timeout_s
     - task 在 main.py 内存中丢失 (重启 / 不同进程) 时, poll 永远 404, 傻等 2 小时才报错
     - 正确做法: 连续 max_404_retries 次 404 立即报错, 不傻等
@@ -263,7 +262,7 @@ def poll_task(
             resp.raise_for_status()
             envelope = resp.json()
             # API envelope: {"status":200, "message":"success", "data":{...}}
-            # 老杨 8/9 09:11 发现: 老代码直接 envelope.get('state') 永远 None (state 在 envelope['data'] 里)
+            # 老代码直接 envelope.get('state') 永远 None (state 在 envelope['data'] 里)
             data = envelope.get("data") if isinstance(envelope, dict) else None
             if not isinstance(data, dict):
                 raise RuntimeError(f"unexpected API response shape: {envelope}")
@@ -312,11 +311,11 @@ def poll_task(
             continue
 
         # ---- 正常分支: 解析 task 状态 ----
-        # 老杨 8/9 09:11 拍板: API 返的 state 是 INT (1=COMPLETE, -1=FAILED, 4=PROCESSING)
+        # API 返的 state 是 INT (1=COMPLETE, -1=FAILED, 4=PROCESSING)
         # 老代码用字符串 'completed'/'failed' 比较, 永远不匹配, poll 永不退出
         state = data.get("state", "unknown")
         progress = data.get("progress", 0)
-        # 老杨 8/9 10:50 发现: 只 state 变才 print, 但 progress 也在变 (40% → 80% → 100%)
+        # 只 state 变才 print, 但 progress 也在变 (40% → 80% → 100%)
         # 加 progress 变化检测, 才能看出下载/拼接进度
         if state != last_state or progress != last_progress:
             print(f"  ⏳ [{elapsed:>5.0f}s] state={state} progress={progress:.1f}%")
@@ -363,7 +362,7 @@ def compute_signature(features: Dict[str, Any]) -> str:
 def process_one_song(ogg_path: Path, dry_run: bool = False, bg: bool = False) -> Optional[str]:
     """单首歌 7 步流程
 
-    bg=True (老杨 8/9 10:58 拍板): 提交 task 后立刻返回, 不 poll 不等
+    bg=True (): 提交 task 后立刻返回, 不 poll 不等
     main.py 后台自己跑 (异步生成), mv_batch 提交完 3 首只需要 5-10 分钟
     """
     print(f"\n{'=' * 70}")
@@ -396,7 +395,7 @@ def process_one_song(ogg_path: Path, dry_run: bool = False, bg: bool = False) ->
     # Step 3: LLM 出方案
     print("\n[Step 3/7] MvPlanner.build() (LLM) ...")
     signature = compute_signature(features)
-    # 老杨 8/9 10:32 拍板: audio_id 用 ogg 文件 path hash (同歌同一 id, 重跑写库只增 version 不重复)
+    # audio_id 用 ogg 文件 path hash (同歌同一 id, 重跑写库只增 version 不重复)
     import hashlib
     audio_id = "mva-" + hashlib.md5(str(ogg_path).encode()).hexdigest()[:12]
     artist = id3_meta.artist if id3_meta else None
@@ -440,7 +439,7 @@ def process_one_song(ogg_path: Path, dry_run: bool = False, bg: bool = False) ->
         except Exception as exc:
             print(f"  ⚠️  update_task_id 失败: {type(exc).__name__}: {exc}")
 
-    # 老杨 8/9 10:58 拍板: bg 模式提交后立刻返回, 不 poll
+    # bg 模式提交后立刻返回, 不 poll
     if bg:
         elapsed = time.time() - t0
         print(f"\n  🚀 [BG 模式] 提交后不等, main.py 后台自己跑")
@@ -478,7 +477,7 @@ def main():
     parser.add_argument(
         "--bg",
         action="store_true",
-        help="老杨 8/9 10:58 拍板: 后台 fire-and-forget 模式\n"
+        help="后台 fire-and-forget 模式\n"
              "提交 task 后不 poll, 立刻继续下一首.\n"
              "main.py 后台自己跑, mv_batch 退出后 task 仍在生成.\n"
              "每首歌只要 30 秒-2 分钟 (Step 1-5 提交), "
@@ -496,7 +495,7 @@ def main():
         default=API_BASE,
         help="FastAPI 地址",
     )
-    # 2026-08-09 老杨 12:53 拍板: 渐进式验证 (1 → 2 → 3)
+    # 2026-08-09 渐进式验证 (1 → 2 → 3)
     # 原话: '下次再测试的时候, 就不要串行3个了. 先串行一个有结果了再串行2个或者3个之类的'
     # 意思: 默认只跑 1 首验证流程通, 验证后才跑多首
     # 默认 1 = 验证1 个 MV 能成功出, 防止批量全炸不知道问题在哪首
@@ -504,7 +503,7 @@ def main():
         "--max-songs",
         type=int,
         default=1,
-        help="老杨 8/9 12:53 拍板: 渐进式验证.\n"
+        help="渐进式验证.\n"
              "  - 1 (默认): 验证流程, 只跑前 1 首\n"
              "  - 2: 验证 2 首串行\n"
              "  - 3: 验证 3 首串行\n"
@@ -521,7 +520,7 @@ def main():
         print(f"❌ 目录 {songs_dir} 里没有 *_L.ogg 文件")
         sys.exit(1)
 
-    # 2026-08-09 老杨 12:53 拍板: 渐进式 (默认只跑 1 首验证)
+    # 2026-08-09 渐进式 (默认只跑 1 首验证)
     max_songs = max(1, int(args.max_songs))
     songs = songs_all[:max_songs]
 

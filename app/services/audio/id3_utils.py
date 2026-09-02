@@ -1,8 +1,8 @@
 """
 audio.id3_utils — ID3 tag 读取
-老杨 2026-08-07 21:14 v2-1 重构 (v2-7 22:18 升级为 ID3Metadata dataclass)
+v2-1 重构 (v2-7 22:18 升级为 ID3Metadata dataclass)
 
-从 mp3 文件读取 artist/title/album/year 用于歌曲识别 (Diana 2.2 优先级 1)
+从 mp3 文件读取 artist/title/album/year 用于歌曲识别 (优先级 1)
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +11,7 @@ from typing import Optional
 
 @dataclass
 class ID3Metadata:
-    """ID3 tag 元数据 (Diana 2.2 歌曲指纹第一层)"""
+    """ID3 tag 元数据 (歌曲指纹第一层)"""
     artist: Optional[str] = None
     title: Optional[str] = None
     album: Optional[str] = None
@@ -68,7 +68,7 @@ def read_id3_tags_legacy(path: str) -> tuple:
     return meta.artist, meta.title
 
 
-# 别名: extract_id3_metadata (老杨 22:18 v2-7 controller 用)
+# 别名: extract_id3_metadata (v2-7 controller 用)
 def extract_id3_metadata(path: str) -> ID3Metadata:
     """read_id3_tags 的别名"""
     return read_id3_tags(path)

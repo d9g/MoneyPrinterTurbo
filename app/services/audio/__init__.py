@@ -1,7 +1,7 @@
 """
 Standalone Audio Style Analyzer
 ===============================
-老杨 2026-08-07 21:14 v2-1 重构 (Diana 审计 2.1)
+v2-1 重构 (审计项 2.1)
 
 独立使用:
     pip install librosa numpy  # mutagen (可选, ID3 读取)

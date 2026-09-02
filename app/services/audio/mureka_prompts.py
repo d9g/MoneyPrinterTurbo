@@ -1,7 +1,6 @@
 """
 audio.mureka_prompts — AI 歌曲提示词生成器 (Mureka 适配)
 
-老杨 2026-08-17 16:08 拍板:
 - 方案 A: 在 MPT audio 服务下加新模块
 - 字段动态生成 (按 features 选词条)
 - 中英双版, 精简 + 详细切换

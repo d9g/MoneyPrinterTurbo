@@ -1,12 +1,12 @@
 """
 mv.intent_repository — 意境历史 CRUD + 业务逻辑
-老杨 2026-08-07 22:18 v2-4 (Diana 4.5 并发锁)
+v2-4 (并发锁)
 
 主要功能:
 1. CRUD: insert / get_latest / get_all_versions
 2. 业务: get_latest_by_signature, list_by_user
-3. 并发: per-signature 锁 (Diana 4.5)
-4. 维护: mark_latest, cleanup_old_versions (Diana 4.4 retention)
+3. 并发: per-signature 锁 ()
+4. 维护: mark_latest, cleanup_old_versions (retention)
 """
 import json
 import sqlite3
@@ -162,7 +162,7 @@ class IntentRepository:
         return [IntentRecord.from_row(r) for r in rows]
 
     def get_recent_for_evolution(self, audio_id: str, n: int = 3) -> List[IntentRecord]:
-        """Diana 3.3: 拿最近 N 条历史, 用于 LLM 进化 prompt"""
+        """拿最近 N 条历史, 用于 LLM 进化 prompt"""
         return self.get_all_versions(audio_id, limit=n)
 
     def update_task_id(self, audio_id: str, version: int, task_id: str) -> bool:
@@ -194,8 +194,8 @@ class IntentRepository:
     def get_latest_by_signature(self, song_signature: str, user_id: Optional[str] = None) -> Optional[IntentRecord]:
         """通过 song_signature 查找最新意境
 
-        Diana 4.5: 用于并发锁内的 double-check
-        老杨 8/8 14:00 bug fix: webui 多次上传同歌生成不同 audio_id (uuid),
+        用于并发锁内的 double-check
+        bug fix: webui 多次上传同歌生成不同 audio_id (uuid),
         mv_intent_latest view 只按 audio_id PARTITION, 跨 audio_id 取最新失效。
         改为直接查 mv_intent_history 主表 + ORDER BY version DESC, 跨 audio_id 正确。
         """
@@ -225,7 +225,7 @@ class IntentRepository:
         return row["cnt"] if row else 0
 
     def count_versions_by_signature(self, song_signature: str) -> int:
-        """老杨 8/8 14:00 bug fix: 跨 audio_id 重跑计数 (同歌多次分析都计入)
+        """bug fix: 跨 audio_id 重跑计数 (同歌多次分析都计入)
 
         webui 每次生成新 uuid file_id, count_versions(audio_id) 只数 1。
         按 song_signature 数才是'同歌被分析过几次'。
@@ -239,7 +239,7 @@ class IntentRepository:
     # ---------- 维护 ----------
 
     def delete_by_signature(self, song_signature: str) -> int:
-        """老杨 8/8 17:34: 按 song_signature 删除该歌所有历史记录 (调试用)
+        """按 song_signature 删除该歌所有历史记录 (调试用)
 
         返回删除的条数. 调试按钮 '🗑 Clear MV Cache' 调用此函数.
         """
@@ -254,7 +254,7 @@ class IntentRepository:
             return deleted
 
     def delete_all(self) -> int:
-        """老杨 8/8 17:40: 清空所有 MV 缓存 (Settings 页面 '清所有' 按钮调用)
+        """清空所有 MV 缓存 (Settings 页面 '清所有'按钮调用)
 
         返回删除的条数.
         """
@@ -266,7 +266,7 @@ class IntentRepository:
             return deleted
 
     def get_stats(self) -> dict:
-        """老杨 8/8 17:40: MV 缓存统计 (Settings 页面展示)
+        """MV 缓存统计 (Settings 页面展示)
 
         Returns:
             dict: {"total": int, "unique_signatures": int, "latest_run_at": str}
@@ -290,7 +290,7 @@ class IntentRepository:
         }
 
     def cleanup_old_versions(self, audio_id: str, keep: int = 10) -> int:
-        """Diana 4.4: 保留最近 N 个版本, 删除旧的"""
+        """保留最近 N 个版本, 删除旧的"""
         with self.db.transaction() as conn:
             cursor = conn.execute(
                 """
@@ -309,7 +309,7 @@ class IntentRepository:
             return deleted
 
     def cleanup_expired(self, retention_days: int = 90) -> int:
-        """按时间清理过期记录 (Diana 4.4)"""
+        """按时间清理过期记录 ()"""
         cutoff = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
         with self.db.transaction() as conn:
             cursor = conn.execute(
@@ -321,10 +321,10 @@ class IntentRepository:
                 logger.info(f"intent_repo: cleaned {deleted} expired records (>{retention_days} days)")
             return deleted
 
-    # ---------- 并发 (Diana 4.5) ----------
+    # ---------- 并发 () ----------
 
     def acquire_lock(self, signature: str) -> threading.Lock:
-        """获取/创建 per-signature 锁 (Diana 4.5)
+        """获取/创建 per-signature 锁 ()
 
         两用户同时上传同一首歌时, 避免重复调 LLM
 
