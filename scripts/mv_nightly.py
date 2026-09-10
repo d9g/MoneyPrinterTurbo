@@ -103,7 +103,7 @@ def build_params(task: Dict[str, Any]) -> Dict[str, Any]:
         "subtitle_enabled": task.get("subtitle_enabled", True),
         "lrc_file": lrc_path,
         "subtitle_position": task.get("subtitle_position", "bottom"),
-        "font_name": task.get("font_name", "MicrosoftYaHeiBold.ttc"),
+        "font_name": task.get("font_name", "NotoSansCJK-Bold.ttc"),
         "text_fore_color": task.get("text_fore_color", "#FFFFFF"),
         "text_background_color": task.get("text_background_color", False),
         "font_size": task.get("font_size", 60),

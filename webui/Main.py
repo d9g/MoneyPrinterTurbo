@@ -172,7 +172,7 @@ LOOMLOOM_VIDEO_MODEL_PRICES = (
 )
 DEFAULT_SUBTITLE_SETTINGS = {
     "subtitle_enabled": True,
-    "font_name": "MicrosoftYaHeiBold.ttc",
+    "font_name": "NotoSansCJK-Bold.ttc",
     "subtitle_position": "bottom",
     "subtitle_display_mode": "sentence",
     "subtitle_animation": "none",
@@ -1812,6 +1812,45 @@ support_locales = [
 # -----------------------------------------------------------------------------
 # 通用 UI 组件、资源缓存与日志
 # -----------------------------------------------------------------------------
+
+
+# 字体元数据 (display_name, license_tag, language_hint)。
+# license_tag ∈ {free, paid, mixed}。streamlit 菜单只负责展示，最终落库仍是 filename。
+# 中文/越南语/高棉语三个语种都有免费字体；中文字体是版权风险高发区，
+# 因此中文字体一律带 `paid` 标签提醒用户谨慎使用。
+_FONT_METADATA = {
+    # 免费 / SIL OFL 1.1
+    "NotoSansCJK-Bold.ttc":     ("思源黑体 Bold",       "free", "中文/日文/韩文"),
+    "NotoSansCJK-Regular.ttc":  ("思源黑体 Regular",    "free", "中文/日文/韩文"),
+    "NotoSerifCJK-Bold.ttc":    ("思源宋体 Bold",       "free", "中文/日文/韩文"),
+    "NotoSerifCJK-Regular.ttc": ("思源宋体 Regular",    "free", "中文/日文/韩文"),
+    "LXGWWenKai-Light.ttf":     ("霞鹜文楷 Light",      "free", "中文（手写风）"),
+    "BeVietnamPro-Bold.ttf":    ("Be Vietnam Pro Bold", "free", "越南文"),
+    "BeVietnamPro-Medium.ttf":  ("Be Vietnam Pro Medium", "free", "越南文"),
+    "Charm-Bold.ttf":           ("Charm Bold",          "free", "高棉文（柬埔寨）"),
+    "Charm-Regular.ttf":        ("Charm Regular",       "free", "高棉文（柬埔寨）"),
+    # 收费 / 需自行评估授权
+    "MicrosoftYaHeiBold.ttc":   ("微软雅黑 Bold",       "paid", "中文（Microsoft EULA）"),
+    "MicrosoftYaHeiNormal.ttc": ("微软雅黑 Regular",    "paid", "中文（Microsoft EULA）"),
+    "STHeitiLight.ttc":         ("华文黑体 Light",      "paid", "中文（华康商业字体）"),
+    "STHeitiMedium.ttc":        ("华文黑体 Medium",     "paid", "中文（华康商业字体）"),
+    "UTM Kabel KT.ttf":         ("UTM Kabel KT",        "free", "西文（越南设计师免费字体）"),
+}
+
+
+def _font_format_func(filename: str) -> str:
+    """Streamlit selectbox 渲染函数：让菜单一眼看清是否免费商用。"""
+    meta = _FONT_METADATA.get(filename)
+    if meta is None:
+        return f"{filename}  ⚠️ 未登记"
+    display_name, license_tag, language_hint = meta
+    if license_tag == "free":
+        badge = "✅ 免费商用"
+    elif license_tag == "paid":
+        badge = "💰 付费授权"
+    else:
+        badge = "⚠️ 未登记"
+    return f"{filename}  {badge} · {display_name}（{language_hint}）"
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -7092,6 +7131,7 @@ def _render_subtitle_settings(panel, params):
                 default_value=font_names[saved_font_name_index] if font_names else "",
                 key="font_name_select",
                 disabled=subtitle_settings_disabled,
+                format_func=_font_format_func,
             )
             _set_runtime_config("ui", "font_name", params.font_name)
 

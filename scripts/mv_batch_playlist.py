@@ -157,7 +157,7 @@ def build_params(
         "subtitle_enabled": True,
         "lrc_file": str(lrc_path),
         "subtitle_position": "bottom",
-        "font_name": "MicrosoftYaHeiBold.ttc",
+        "font_name": "NotoSansCJK-Bold.ttc",
         "font_size": 60,
         "text_fore_color": "#FFFFFF",
         "text_background_color": True,
