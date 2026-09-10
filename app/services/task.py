@@ -21,6 +21,8 @@ from app.services import (
     llm,
     loomloom,
     material,
+    metaso_minimax,
+    ofox,
     sonilo,
     subtitle,
     task_artifacts,
@@ -316,7 +318,7 @@ def generate_terms(task_id, params, video_script):
         # 无法改善“后面内容的画面提前出现”的问题。
         video_terms = llm.generate_terms(
             video_subject=params.video_subject,
-            video_script=video_script,
+            video_script=utils.remove_pause_tags(video_script),
             amount=8 if params.match_materials_to_script else 5,
             match_script_order=params.match_materials_to_script,
         )
@@ -635,9 +637,14 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
         )
         return ""
 
+    is_word_level = getattr(params, "subtitle_display_mode", "sentence") == "word_by_word"
+
     if subtitle_provider == "edge":
         voice.create_subtitle(
-            text=video_script, sub_maker=sub_maker, subtitle_file=subtitle_path
+            text=video_script,
+            sub_maker=sub_maker,
+            subtitle_file=subtitle_path,
+            word_level=is_word_level,
         )
         if not os.path.exists(subtitle_path):
             # Edge 字幕偶尔会因为时间轴与文案无法匹配而没有产出文件。这里不能
@@ -651,9 +658,14 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
             return ""
 
     if subtitle_provider == "whisper":
-        subtitle.create(audio_file=audio_file, subtitle_file=subtitle_path)
-        logger.info("\n\n## correcting subtitle")
-        subtitle.correct(subtitle_file=subtitle_path, video_script=video_script)
+        subtitle.create(
+            audio_file=audio_file,
+            subtitle_file=subtitle_path,
+            word_level=is_word_level,
+        )
+        if not is_word_level:
+            logger.info("\n\n## correcting subtitle")
+            subtitle.correct(subtitle_file=subtitle_path, video_script=video_script)
 
     subtitle_lines = subtitle.file_to_subtitles(subtitle_path)
     if not subtitle_lines:
@@ -772,6 +784,35 @@ def get_video_materials(
                 {"volcengine_seedance_task_id": remote_task_id}
                 if remote_task_id
                 else None
+            )
+            _mark_task_failed(
+                task_id,
+                "materials",
+                str(exc),
+                details=details,
+            )
+            return None
+        except ofox.OFoxError as exc:
+            # 与方舟同一恢复语义：未确认状态和已生成但下载失败都对应一个可在
+            # OFox 控制台恢复的远端任务，统一从异常携带的 task_id 写入失败状态。
+            remote_task_id = str(getattr(exc, "task_id", "") or "").strip()
+            details = (
+                {"ofox_task_id": remote_task_id} if remote_task_id else None
+            )
+            _mark_task_failed(
+                task_id,
+                "materials",
+                str(exc),
+                details=details,
+            )
+            return None
+        except metaso_minimax.MetasoMiniMaxError as exc:
+            # 秘塔任务与方舟任务使用不同的恢复入口和字段名，不能合并成一个
+            # 模糊的 remote_task_id。保留明确 Provider 前缀便于 API、WebUI
+            # 和运维日志直接定位对应平台。
+            remote_task_id = str(getattr(exc, "task_id", "") or "").strip()
+            details = (
+                {"metaso_minimax_task_id": remote_task_id} if remote_task_id else None
             )
             _mark_task_failed(
                 task_id,
@@ -1349,6 +1390,28 @@ def _run_pipeline(
             task_id,
             "preflight",
             "Volcano Engine Seedance requires an Ark API key",
+        )
+
+    if (
+        stop_at in {"materials", "video"}
+        and params.video_source == "ofox"
+        and not ofox.is_enabled()
+    ):
+        return _mark_task_failed(
+            task_id,
+            "preflight",
+            "OFox video generation requires an OFox API key",
+        )
+
+    if (
+        stop_at in {"materials", "video"}
+        and params.video_source == "metaso_minimax"
+        and not metaso_minimax.is_enabled()
+    ):
+        return _mark_task_failed(
+            task_id,
+            "preflight",
+            "Metaso MiniMax requires an API key",
         )
 
     if (
